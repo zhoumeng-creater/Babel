@@ -1,10 +1,30 @@
-"""孤独症数据分析模块 - 基于ABC量表"""
+"""孤独症数据分析模块 - 支持DSM-5和ABC双标准"""
 import numpy as np
 import pandas as pd
-from .config import ABC_EVALUATION_METRICS, ABC_BEHAVIOR_ITEMS
+from .config import ABC_EVALUATION_METRICS, ABC_BEHAVIOR_ITEMS, DSM5_EVALUATION_METRICS
 
 
 def generate_clinical_analysis(records):
+    """生成临床分析报告 - 自动识别并处理DSM-5和ABC两种标准"""
+    if not records:
+        return {}
+    
+    # 识别数据类型
+    assessment_standards = [r.get('assessment_standard', 'ABC') for r in records]
+    unique_standards = list(set(assessment_standards))
+    
+    if len(unique_standards) == 1:
+        # 单一标准
+        if unique_standards[0] == 'DSM5':
+            return generate_dsm5_analysis(records)
+        else:
+            return generate_abc_analysis(records)
+    else:
+        # 混合标准
+        return generate_mixed_analysis(records)
+
+
+def generate_abc_analysis(records):
     """生成基于ABC量表的统计分析报告"""
     if not records:
         return {}
@@ -14,92 +34,147 @@ def generate_clinical_analysis(records):
     # 基础统计
     analysis['评估概况'] = {
         '评估总数': len(records),
+        '评估标准': 'ABC孤独症行为量表',
         '评估时间跨度': f"{min(r['timestamp'] for r in records).strftime('%Y-%m-%d')} 至 {max(r['timestamp'] for r in records).strftime('%Y-%m-%d')}",
         '涉及情境数': len(set(r['scene'] for r in records)),
         '涉及严重程度数': len(set(r.get('template', '自定义') for r in records))
     }
     
     # ABC总分分析
-    total_scores = [r['abc_total_score'] for r in records]
-    analysis['ABC总分统计'] = {
-        '平均总分': f"{np.mean(total_scores):.1f}",
-        '总分范围': f"{np.min(total_scores):.0f}-{np.max(total_scores):.0f}",
-        '标准差': f"{np.std(total_scores):.1f}",
-        '中位数': f"{np.median(total_scores):.0f}"
-    }
+    total_scores = [r['abc_total_score'] for r in records if 'abc_total_score' in r]
+    if total_scores:
+        analysis['ABC总分统计'] = {
+            '平均总分': f"{np.mean(total_scores):.1f}",
+            '总分范围': f"{np.min(total_scores):.0f}-{np.max(total_scores):.0f}",
+            '标准差': f"{np.std(total_scores):.1f}",
+            '中位数': f"{np.median(total_scores):.0f}"
+        }
     
     # 严重程度分布
     severity_distribution = {}
     for record in records:
-        severity = record['abc_severity']
-        if severity not in severity_distribution:
-            severity_distribution[severity] = 0
-        severity_distribution[severity] += 1
+        if 'abc_severity' in record:
+            severity = record['abc_severity']
+            if severity not in severity_distribution:
+                severity_distribution[severity] = 0
+            severity_distribution[severity] += 1
     
-    analysis['严重程度分布'] = {
-        k: f"{v} ({v/len(records)*100:.1f}%)" 
-        for k, v in severity_distribution.items()
-    }
+    if severity_distribution:
+        analysis['严重程度分布'] = {
+            k: f"{v} ({v/len(records)*100:.1f}%)" 
+            for k, v in severity_distribution.items()
+        }
     
     # 各领域得分分析
     domain_stats = {}
     for domain in ABC_EVALUATION_METRICS.keys():
-        scores = [r['evaluation_scores'][domain] for r in records]
-        domain_stats[domain] = {
-            '平均分': f"{np.mean(scores):.1f}",
-            '最高分': f"{np.max(scores):.0f}",
-            '最低分': f"{np.min(scores):.0f}",
-            '占满分比例': f"{np.mean(scores)/ABC_EVALUATION_METRICS[domain]['max_score']*100:.1f}%"
-        }
+        scores = [r['evaluation_scores'][domain] for r in records if domain in r.get('evaluation_scores', {})]
+        if scores:
+            domain_stats[domain] = {
+                '平均分': f"{np.mean(scores):.1f}",
+                '最高分': f"{np.max(scores):.0f}",
+                '最低分': f"{np.min(scores):.0f}",
+                '占满分比例': f"{np.mean(scores)/ABC_EVALUATION_METRICS[domain]['max_score']*100:.1f}%"
+            }
     
-    analysis['各领域得分分析'] = domain_stats
+    if domain_stats:
+        analysis['各领域得分分析'] = domain_stats
     
     # 行为出现频率分析
-    behavior_frequency = analyze_behavior_frequency(records)
-    analysis['高频行为表现'] = behavior_frequency
+    behavior_frequency = analyze_abc_behavior_frequency(records)
+    if behavior_frequency:
+        analysis['高频行为表现'] = behavior_frequency
     
     # 按严重程度组分析
-    severity_group_analysis = {}
-    for template in set(r.get('template', '自定义') for r in records):
-        template_records = [r for r in records if r.get('template', '自定义') == template]
-        
-        avg_total = np.mean([r['abc_total_score'] for r in template_records])
-        domain_avgs = {}
-        for domain in ABC_EVALUATION_METRICS.keys():
-            scores = [r['evaluation_scores'][domain] for r in template_records]
-            domain_avgs[domain] = f"{np.mean(scores):.1f}"
-        
-        severity_group_analysis[template] = {
-            '样本数': len(template_records),
-            'ABC平均总分': f"{avg_total:.1f}",
-            '各领域平均分': domain_avgs
-        }
-    
-    analysis['严重程度组间分析'] = severity_group_analysis
+    severity_group_analysis = analyze_by_severity_abc(records)
+    if severity_group_analysis:
+        analysis['严重程度组间分析'] = severity_group_analysis
     
     # 情境效应分析
-    context_analysis = {}
-    for scene in set(r['scene'] for r in records):
-        scene_records = [r for r in records if r['scene'] == scene]
-        avg_total = np.mean([r['abc_total_score'] for r in scene_records])
-        
-        context_analysis[scene] = {
-            '评估次数': len(scene_records),
-            'ABC平均总分': f"{avg_total:.1f}",
-            '主要表现': get_main_behaviors_in_context(scene_records)
-        }
-    
-    analysis['情境效应分析'] = context_analysis
+    context_analysis = analyze_by_context_abc(records)
+    if context_analysis:
+        analysis['情境效应分析'] = context_analysis
     
     # 临床发现和建议
-    findings = generate_clinical_findings(records, analysis)
+    findings = generate_abc_findings(records, analysis)
     analysis['临床发现与建议'] = findings
     
     return analysis
 
 
-def analyze_behavior_frequency(records):
-    """分析行为出现频率"""
+def generate_dsm5_analysis(records):
+    """生成基于DSM-5标准的统计分析报告"""
+    if not records:
+        return {}
+    
+    analysis = {}
+    
+    # 基础统计
+    analysis['评估概况'] = {
+        '评估总数': len(records),
+        '评估标准': 'DSM-5孤独症诊断标准',
+        '评估时间跨度': f"{min(r['timestamp'] for r in records).strftime('%Y-%m-%d')} 至 {max(r['timestamp'] for r in records).strftime('%Y-%m-%d')}",
+        '涉及情境数': len(set(r['scene'] for r in records)),
+        '涉及严重程度数': len(set(r.get('template', '自定义') for r in records))
+    }
+    
+    # 按严重程度分析
+    severity_stats = analyze_by_severity_dsm5(records)
+    if severity_stats:
+        analysis['严重程度分析'] = severity_stats
+    
+    # 按评估情境分析
+    context_stats = analyze_by_context_dsm5(records)
+    if context_stats:
+        analysis['情境分析'] = context_stats
+    
+    # 整体临床表现
+    overall_performance = analyze_overall_dsm5(records)
+    if overall_performance:
+        analysis['整体临床表现'] = overall_performance
+    
+    # 临床发现和建议
+    findings = generate_dsm5_findings(records, analysis)
+    analysis['临床发现与建议'] = findings
+    
+    return analysis
+
+
+def generate_mixed_analysis(records):
+    """生成混合标准的分析报告"""
+    # 分离不同标准的记录
+    abc_records = [r for r in records if r.get('assessment_standard', 'ABC') == 'ABC']
+    dsm5_records = [r for r in records if r.get('assessment_standard', 'ABC') == 'DSM5']
+    
+    analysis = {
+        '评估概况': {
+            '总评估数': len(records),
+            'ABC评估数': len(abc_records),
+            'DSM-5评估数': len(dsm5_records),
+            '评估时间跨度': f"{min(r['timestamp'] for r in records).strftime('%Y-%m-%d')} 至 {max(r['timestamp'] for r in records).strftime('%Y-%m-%d')}"
+        }
+    }
+    
+    # 分别分析
+    if abc_records:
+        analysis['ABC量表分析'] = generate_abc_analysis(abc_records)
+    
+    if dsm5_records:
+        analysis['DSM-5标准分析'] = generate_dsm5_analysis(dsm5_records)
+    
+    # 综合建议
+    analysis['综合临床建议'] = [
+        f"共进行了{len(abc_records)}次ABC评估和{len(dsm5_records)}次DSM-5评估",
+        "建议结合两种评估标准的结果制定综合干预方案",
+        "ABC量表侧重行为频率统计，DSM-5侧重症状严重程度评估"
+    ]
+    
+    return analysis
+
+
+# ABC分析辅助函数
+def analyze_abc_behavior_frequency(records):
+    """分析ABC行为出现频率"""
     all_behaviors = {}
     
     for record in records:
@@ -119,6 +194,74 @@ def analyze_behavior_frequency(records):
     }
 
 
+def analyze_by_severity_abc(records):
+    """按严重程度分析ABC数据"""
+    severity_stats = {}
+    
+    for record in records:
+        severity = record.get('template', '自定义')
+        if severity not in severity_stats:
+            severity_stats[severity] = {
+                '评估次数': 0,
+                'ABC总分': [],
+                '各领域得分': {domain: [] for domain in ABC_EVALUATION_METRICS.keys()}
+            }
+        
+        severity_stats[severity]['评估次数'] += 1
+        if 'abc_total_score' in record:
+            severity_stats[severity]['ABC总分'].append(record['abc_total_score'])
+        
+        for domain in ABC_EVALUATION_METRICS.keys():
+            if domain in record.get('evaluation_scores', {}):
+                severity_stats[severity]['各领域得分'][domain].append(record['evaluation_scores'][domain])
+    
+    # 计算统计值
+    for severity, stats in severity_stats.items():
+        if stats['ABC总分']:
+            stats['ABC平均总分'] = f"{np.mean(stats['ABC总分']):.1f}"
+            stats['ABC总分标准差'] = f"{np.std(stats['ABC总分']):.1f}"
+        
+        for domain, scores in stats['各领域得分'].items():
+            if scores:
+                stats[f'{domain}_均值'] = np.mean(scores)
+                stats[f'{domain}_标准差'] = np.std(scores)
+        
+        del stats['ABC总分']
+        del stats['各领域得分']
+    
+    return severity_stats
+
+
+def analyze_by_context_abc(records):
+    """按情境分析ABC数据"""
+    context_stats = {}
+    
+    for record in records:
+        context = record['scene']
+        if context not in context_stats:
+            context_stats[context] = {
+                '评估次数': 0,
+                'ABC总分': []
+            }
+        
+        context_stats[context]['评估次数'] += 1
+        if 'abc_total_score' in record:
+            context_stats[context]['ABC总分'].append(record['abc_total_score'])
+    
+    # 计算统计值并获取主要行为
+    for context, stats in context_stats.items():
+        if stats['ABC总分']:
+            stats['ABC平均总分'] = f"{np.mean(stats['ABC总分']):.1f}"
+        
+        # 获取该情境下的主要行为
+        context_records = [r for r in records if r['scene'] == context]
+        stats['主要表现'] = get_main_behaviors_in_context(context_records)
+        
+        del stats['ABC总分']
+    
+    return context_stats
+
+
 def get_main_behaviors_in_context(scene_records):
     """获取特定情境下的主要行为表现"""
     behavior_counts = {}
@@ -136,36 +279,38 @@ def get_main_behaviors_in_context(scene_records):
     return [behavior for behavior, _ in sorted_behaviors[:3]]
 
 
-def generate_clinical_findings(records, analysis):
-    """生成临床发现和建议"""
+def generate_abc_findings(records, analysis):
+    """生成ABC的临床发现和建议"""
     findings = []
     
     # 基于ABC总分的发现
-    avg_total = np.mean([r['abc_total_score'] for r in records])
-    
-    if avg_total >= 67:
-        findings.append("ABC总分显示明确的孤独症表现，建议进行全面的干预治疗")
-    elif avg_total >= 53:
-        findings.append("ABC总分处于轻度范围，建议早期干预和定期评估")
-    elif avg_total >= 40:
-        findings.append("ABC总分处于边缘状态，需要密切观察和跟踪评估")
-    else:
-        findings.append("ABC总分未达到孤独症诊断标准，但仍需关注个别领域的表现")
+    if 'ABC总分统计' in analysis:
+        avg_total = float(analysis['ABC总分统计']['平均总分'])
+        
+        if avg_total >= 67:
+            findings.append("ABC总分显示明确的孤独症表现，建议进行全面的干预治疗")
+        elif avg_total >= 53:
+            findings.append("ABC总分处于轻度范围，建议早期干预和定期评估")
+        elif avg_total >= 40:
+            findings.append("ABC总分处于边缘状态，需要密切观察和跟踪评估")
+        else:
+            findings.append("ABC总分未达到孤独症诊断标准，但仍需关注个别领域的表现")
     
     # 分析各领域表现
-    domain_scores = {}
-    for domain in ABC_EVALUATION_METRICS.keys():
-        scores = [r['evaluation_scores'][domain] for r in records]
-        avg_score = np.mean(scores)
-        max_score = ABC_EVALUATION_METRICS[domain]['max_score']
-        percentage = avg_score / max_score * 100
-        domain_scores[domain] = percentage
-    
-    # 找出最严重的领域
-    most_severe_domain = max(domain_scores.items(), key=lambda x: x[1])
-    if most_severe_domain[1] > 60:
-        domain_name = most_severe_domain[0].replace("得分", "")
-        findings.append(f"{domain_name}问题最为突出，应作为干预的重点")
+    if '各领域得分分析' in analysis:
+        domain_scores = {}
+        for domain, stats in analysis['各领域得分分析'].items():
+            avg_score = float(stats['平均分'])
+            max_score = ABC_EVALUATION_METRICS[domain]['max_score']
+            percentage = avg_score / max_score * 100
+            domain_scores[domain] = percentage
+        
+        # 找出最严重的领域
+        if domain_scores:
+            most_severe_domain = max(domain_scores.items(), key=lambda x: x[1])
+            if most_severe_domain[1] > 60:
+                domain_name = most_severe_domain[0].replace("得分", "")
+                findings.append(f"{domain_name}问题最为突出，应作为干预的重点")
     
     # 基于高频行为的建议
     if '高频行为表现' in analysis:
@@ -178,14 +323,18 @@ def generate_clinical_findings(records, analysis):
             findings.append("有攻击性行为，需要行为管理和情绪调节训练")
     
     # 基于领域分析的具体建议
-    if domain_scores.get("感觉领域得分", 0) > 50:
-        findings.append("感觉处理异常明显，建议进行感觉统合训练")
-    
-    if domain_scores.get("交往领域得分", 0) > 60:
-        findings.append("社交障碍严重，需要加强社交技能训练和同伴互动")
-    
-    if domain_scores.get("语言领域得分", 0) > 60:
-        findings.append("语言沟通严重受损，建议语言治疗和替代沟通方式")
+    if '各领域得分分析' in analysis:
+        for domain in analysis['各领域得分分析']:
+            avg_score = float(analysis['各领域得分分析'][domain]['平均分'])
+            max_score = ABC_EVALUATION_METRICS[domain]['max_score']
+            percentage = avg_score / max_score * 100
+            
+            if "感觉" in domain and percentage > 50:
+                findings.append("感觉处理异常明显，建议进行感觉统合训练")
+            elif "交往" in domain and percentage > 60:
+                findings.append("社交障碍严重，需要加强社交技能训练和同伴互动")
+            elif "语言" in domain and percentage > 60:
+                findings.append("语言沟通严重受损，建议语言治疗和替代沟通方式")
     
     # 情境相关建议
     if '情境效应分析' in analysis:
@@ -193,62 +342,240 @@ def generate_clinical_findings(records, analysis):
         context_scores = {
             context: float(data['ABC平均总分']) 
             for context, data in analysis['情境效应分析'].items()
+            if 'ABC平均总分' in data
         }
-        best_context = min(context_scores.items(), key=lambda x: x[1])
-        findings.append(f"在{best_context[0]}中表现相对较好，可作为干预的起点")
+        if context_scores:
+            best_context = min(context_scores.items(), key=lambda x: x[1])
+            findings.append(f"在{best_context[0]}中表现相对较好，可作为干预的起点")
+    
+    return findings
+
+
+# DSM-5分析辅助函数
+def analyze_by_severity_dsm5(records):
+    """按严重程度分析DSM-5数据"""
+    severity_stats = {}
+    
+    for record in records:
+        severity = record.get('template', '自定义')
+        if severity not in severity_stats:
+            severity_stats[severity] = {
+                '评估次数': 0,
+                '各指标得分': {metric: [] for metric in DSM5_EVALUATION_METRICS.keys()}
+            }
+        
+        severity_stats[severity]['评估次数'] += 1
+        
+        for metric in DSM5_EVALUATION_METRICS.keys():
+            if metric in record.get('evaluation_scores', {}):
+                severity_stats[severity]['各指标得分'][metric].append(record['evaluation_scores'][metric])
+    
+    # 计算统计值
+    for severity, stats in severity_stats.items():
+        for metric, scores in stats['各指标得分'].items():
+            if scores:
+                stats[f'{metric}_均值'] = np.mean(scores)
+                stats[f'{metric}_标准差'] = np.std(scores)
+                stats[f'{metric}_范围'] = f"{np.min(scores):.1f}-{np.max(scores):.1f}"
+        
+        del stats['各指标得分']
+    
+    return severity_stats
+
+
+def analyze_by_context_dsm5(records):
+    """按情境分析DSM-5数据"""
+    context_stats = {}
+    
+    for record in records:
+        context = record['scene']
+        if context not in context_stats:
+            context_stats[context] = {
+                '评估次数': 0,
+                '核心症状得分': []
+            }
+        
+        context_stats[context]['评估次数'] += 1
+        
+        # 计算核心症状综合得分
+        if all(metric in record.get('evaluation_scores', {}) for metric in ['社交互动质量', '沟通交流能力', '刻板重复行为']):
+            core_score = (record['evaluation_scores']['社交互动质量'] + 
+                         record['evaluation_scores']['沟通交流能力'] + 
+                         record['evaluation_scores']['刻板重复行为']) / 3
+            context_stats[context]['核心症状得分'].append(core_score)
+    
+    # 计算统计值
+    for context, stats in context_stats.items():
+        if stats['核心症状得分']:
+            stats['核心症状均值'] = f"{np.mean(stats['核心症状得分']):.2f}"
+            stats['核心症状标准差'] = f"{np.std(stats['核心症状得分']):.2f}"
+        
+        del stats['核心症状得分']
+    
+    return context_stats
+
+
+def analyze_overall_dsm5(records):
+    """分析DSM-5整体表现"""
+    metrics = {metric: [] for metric in DSM5_EVALUATION_METRICS.keys()}
+    
+    for record in records:
+        for metric in DSM5_EVALUATION_METRICS.keys():
+            if metric in record.get('evaluation_scores', {}):
+                metrics[metric].append(record['evaluation_scores'][metric])
+    
+    overall = {}
+    for metric, scores in metrics.items():
+        if scores:
+            overall[f'{metric}程度'] = f"{np.mean(scores):.2f} ± {np.std(scores):.2f}"
+    
+    # 计算核心症状综合严重度
+    if all(len(metrics[m]) > 0 for m in ['社交互动质量', '沟通交流能力', '刻板重复行为']):
+        core_severity = (np.mean(metrics['社交互动质量']) + 
+                        np.mean(metrics['沟通交流能力']) + 
+                        np.mean(metrics['刻板重复行为'])) / 3
+        overall['核心症状综合严重度'] = f"{core_severity:.2f}"
+    
+    return overall
+
+
+def generate_dsm5_findings(records, analysis):
+    """生成DSM-5的临床发现和建议"""
+    findings = []
+    
+    # 分析核心症状
+    if '整体临床表现' in analysis and '核心症状综合严重度' in analysis['整体临床表现']:
+        core_severity = float(analysis['整体临床表现']['核心症状综合严重度'])
+        
+        if core_severity >= 4.0:
+            findings.append("核心症状严重，建议密集型干预治疗")
+        elif core_severity >= 3.0:
+            findings.append("核心症状中等，建议结构化教学和行为干预")
+        else:
+            findings.append("核心症状相对较轻，建议社交技能训练")
+    
+    # 分析各维度表现
+    if '整体临床表现' in analysis:
+        for metric, value in analysis['整体临床表现'].items():
+            if '±' in value:  # 这是一个统计值
+                avg_score = float(value.split('±')[0].strip())
+                
+                if '感官处理' in metric and avg_score >= 4.0:
+                    findings.append("存在明显感官处理异常，建议感觉统合治疗")
+                elif '情绪行为调节' in metric and avg_score >= 4.0:
+                    findings.append("情绪调节困难显著，建议心理行为干预")
+                elif '认知适应' in metric and avg_score >= 4.0:
+                    findings.append("认知适应功能严重受损，需要特殊教育支持")
+    
+    # 分析最优情境
+    if '情境分析' in analysis:
+        context_scores = {}
+        for context, data in analysis['情境分析'].items():
+            if '核心症状均值' in data:
+                context_scores[context] = float(data['核心症状均值'])
+        
+        if context_scores:
+            best_context = min(context_scores.items(), key=lambda x: x[1])
+            findings.append(f"在{best_context[0]}中表现相对较好，可作为干预起点")
     
     return findings
 
 
 def prepare_clinical_export_data(records):
-    """准备ABC量表数据导出"""
+    """准备临床数据导出 - 支持DSM-5和ABC双标准"""
     export_data = []
     
     for record in records:
-        profile = record.get('autism_profile', {})
-        scores = record['evaluation_scores']
+        assessment_standard = record.get('assessment_standard', 'ABC')
         
+        # 基础信息
         export_row = {
             '评估ID': record['experiment_id'],
             '评估时间': record['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
+            '评估标准': assessment_standard,
             '严重程度分级': record.get('template', '自定义'),
-            'ABC严重程度判定': record['abc_severity'],
             '评估情境': record['scene'],
             '观察活动': record.get('activity', ''),
             '触发因素': record.get('trigger', ''),
-            'ABC总分': record['abc_total_score'],
-            '感觉领域得分': scores['感觉领域得分'],
-            '交往领域得分': scores['交往领域得分'],
-            '躯体运动领域得分': scores['躯体运动领域得分'],
-            '语言领域得分': scores['语言领域得分'],
-            '社交与自理领域得分': scores['社交与自理领域得分'],
             '备注': record.get('notes', '')
         }
         
-        # 添加ABC配置信息
-        if profile:
+        # 根据评估标准添加不同的数据
+        if assessment_standard == 'ABC':
+            # ABC特有数据
             export_row.update({
-                '配置描述': profile.get('description', ''),
-                '感觉异常程度': f"{profile.get('sensory_abnormal', 0)*100:.0f}%",
-                '交往障碍程度': f"{profile.get('social_impairment', 0)*100:.0f}%",
-                '运动刻板程度': f"{profile.get('motor_stereotypy', 0)*100:.0f}%",
-                '语言缺陷程度': f"{profile.get('language_deficit', 0)*100:.0f}%",
-                '自理缺陷程度': f"{profile.get('self_care_deficit', 0)*100:.0f}%",
-                '行为频率': f"{profile.get('behavior_frequency', 0)*100:.0f}%"
+                'ABC总分': record.get('abc_total_score', ''),
+                'ABC严重程度判定': record.get('abc_severity', ''),
             })
-        
-        # 添加识别到的具体行为
-        if 'identified_behaviors' in record:
-            all_behaviors = []
-            for domain, behaviors in record['identified_behaviors'].items():
-                all_behaviors.extend(behaviors)
-            export_row['识别到的行为'] = '; '.join(all_behaviors[:10])  # 最多显示10个
+            
+            # ABC各领域得分
+            scores = record.get('evaluation_scores', {})
+            for domain in ABC_EVALUATION_METRICS.keys():
+                export_row[domain] = scores.get(domain, '')
+            
+            # ABC配置信息
+            if record.get('autism_profile'):
+                profile = record['autism_profile']
+                export_row.update({
+                    '配置描述': profile.get('description', ''),
+                    '感觉异常程度': f"{profile.get('sensory_abnormal', 0)*100:.0f}%",
+                    '交往障碍程度': f"{profile.get('social_impairment', 0)*100:.0f}%",
+                    '运动刻板程度': f"{profile.get('motor_stereotypy', 0)*100:.0f}%",
+                    '语言缺陷程度': f"{profile.get('language_deficit', 0)*100:.0f}%",
+                    '自理缺陷程度': f"{profile.get('self_care_deficit', 0)*100:.0f}%",
+                    '行为频率': f"{profile.get('behavior_frequency', 0)*100:.0f}%"
+                })
+            
+            # 识别到的行为
+            if 'identified_behaviors' in record:
+                all_behaviors = []
+                for domain, behaviors in record['identified_behaviors'].items():
+                    all_behaviors.extend(behaviors)
+                export_row['识别到的行为'] = '; '.join(all_behaviors[:10])
+                
+        else:  # DSM-5
+            # DSM-5特有数据
+            scores = record.get('evaluation_scores', {})
+            
+            # 计算核心症状综合严重度
+            if all(metric in scores for metric in ['社交互动质量', '沟通交流能力', '刻板重复行为']):
+                core_severity = (scores['社交互动质量'] + 
+                               scores['沟通交流能力'] + 
+                               scores['刻板重复行为']) / 3
+                export_row['核心症状综合严重度'] = round(core_severity, 2)
+            
+            # DSM-5各维度得分
+            for metric in DSM5_EVALUATION_METRICS.keys():
+                export_row[metric] = scores.get(metric, '')
+            
+            # DSM-5配置信息
+            if record.get('autism_profile'):
+                profile = record['autism_profile']
+                export_row.update({
+                    'DSM5严重程度': profile.get('dsm5_severity', ''),
+                    '所需支持水平': profile.get('support_needs', ''),
+                    '社交沟通缺陷设置': profile.get('social_communication', ''),
+                    '刻板重复行为设置': profile.get('restricted_repetitive', ''),
+                    '感官处理设置': profile.get('sensory_processing', ''),
+                    '认知功能设置': profile.get('cognitive_function', ''),
+                    '适应行为设置': profile.get('adaptive_behavior', ''),
+                    '语言发展设置': profile.get('language_level', ''),
+                    '特殊兴趣': profile.get('special_interests', '')
+                })
+            
+            # 临床观察
+            if 'clinical_observations' in record:
+                observations = []
+                for category, obs_list in record['clinical_observations'].items():
+                    observations.extend([f"[{category}] {obs}" for obs in obs_list])
+                export_row['临床观察'] = '; '.join(observations[:10])
         
         export_data.append(export_row)
     
     return export_data
 
-# ========== 新增：小群体特征提取功能 ==========
+
+# ========== 保留原有的高级分析功能 ==========
 
 def extract_behavior_specific_samples(records, target_behaviors, logic='OR'):
     """
@@ -267,6 +594,7 @@ def extract_behavior_specific_samples(records, target_behaviors, logic='OR'):
     behavior_stats = {behavior: 0 for behavior in target_behaviors}
     
     for record in records:
+        # 只处理ABC记录（有identified_behaviors字段）
         if 'identified_behaviors' not in record:
             continue
             
@@ -312,6 +640,20 @@ def calculate_sample_similarity(record1, record2, weights=None):
     - similarity: 相似度分数（0-1）
     - details: 详细的相似度信息
     """
+    # 检查是否为相同评估标准
+    if record1.get('assessment_standard', 'ABC') != record2.get('assessment_standard', 'ABC'):
+        return 0.0, {'error': '评估标准不同，无法比较'}
+    
+    assessment_standard = record1.get('assessment_standard', 'ABC')
+    
+    if assessment_standard == 'ABC':
+        return calculate_abc_similarity(record1, record2, weights)
+    else:
+        return calculate_dsm5_similarity(record1, record2, weights)
+
+
+def calculate_abc_similarity(record1, record2, weights=None):
+    """计算ABC样本相似度"""
     if weights is None:
         weights = {
             '感觉领域得分': 1.0,
@@ -327,18 +669,19 @@ def calculate_sample_similarity(record1, record2, weights=None):
     weight_sum = 0
     
     for domain in record1['evaluation_scores'].keys():
-        score1 = record1['evaluation_scores'][domain]
-        score2 = record2['evaluation_scores'][domain]
-        max_score = ABC_EVALUATION_METRICS[domain]['max_score']
-        
-        # 归一化差异
-        normalized_diff = abs(score1 - score2) / max_score
-        score_diffs[domain] = normalized_diff
-        
-        # 加权求和
-        weight = weights.get(domain, 1.0)
-        weighted_diff_sum += normalized_diff * weight
-        weight_sum += weight
+        if domain in ABC_EVALUATION_METRICS:
+            score1 = record1['evaluation_scores'][domain]
+            score2 = record2['evaluation_scores'][domain]
+            max_score = ABC_EVALUATION_METRICS[domain]['max_score']
+            
+            # 归一化差异
+            normalized_diff = abs(score1 - score2) / max_score
+            score_diffs[domain] = normalized_diff
+            
+            # 加权求和
+            weight = weights.get(domain, 1.0)
+            weighted_diff_sum += normalized_diff * weight
+            weight_sum += weight
     
     # 计算相似度（1 - 平均差异）
     avg_diff = weighted_diff_sum / weight_sum if weight_sum > 0 else 1.0
@@ -380,6 +723,43 @@ def calculate_sample_similarity(record1, record2, weights=None):
     return total_similarity, details
 
 
+def calculate_dsm5_similarity(record1, record2, weights=None):
+    """计算DSM-5样本相似度"""
+    if weights is None:
+        weights = {metric: 1.0 for metric in DSM5_EVALUATION_METRICS.keys()}
+    
+    # 计算各维度得分的差异
+    score_diffs = {}
+    weighted_diff_sum = 0
+    weight_sum = 0
+    
+    for metric in record1['evaluation_scores'].keys():
+        if metric in DSM5_EVALUATION_METRICS:
+            score1 = record1['evaluation_scores'][metric]
+            score2 = record2['evaluation_scores'][metric]
+            
+            # 归一化差异（DSM-5使用1-5分制）
+            normalized_diff = abs(score1 - score2) / 4.0  # 最大差异为4
+            score_diffs[metric] = normalized_diff
+            
+            # 加权求和
+            weight = weights.get(metric, 1.0)
+            weighted_diff_sum += normalized_diff * weight
+            weight_sum += weight
+    
+    # 计算相似度
+    avg_diff = weighted_diff_sum / weight_sum if weight_sum > 0 else 1.0
+    similarity = 1 - avg_diff
+    
+    details = {
+        'score_similarity': similarity,
+        'total_similarity': similarity,
+        'score_differences': score_diffs
+    }
+    
+    return similarity, details
+
+
 def find_similar_samples(target_record, all_records, threshold=0.7, max_results=10):
     """
     查找与目标样本相似的其他样本
@@ -400,6 +780,10 @@ def find_similar_samples(target_record, all_records, threshold=0.7, max_results=
         if record['experiment_id'] == target_record['experiment_id']:
             continue
         
+        # 只比较相同评估标准的记录
+        if record.get('assessment_standard', 'ABC') != target_record.get('assessment_standard', 'ABC'):
+            continue
+        
         similarity, details = calculate_sample_similarity(target_record, record)
         
         if similarity >= threshold:
@@ -418,7 +802,7 @@ def find_similar_samples(target_record, all_records, threshold=0.7, max_results=
 
 def analyze_behavior_associations(records, min_support=0.1):
     """
-    分析行为之间的关联关系
+    分析行为之间的关联关系（仅适用于ABC记录）
     
     参数:
     - records: 评估记录列表
@@ -428,17 +812,22 @@ def analyze_behavior_associations(records, min_support=0.1):
     - associations: 行为关联规则列表
     - co_occurrence_matrix: 行为共现矩阵
     """
+    # 只处理ABC记录
+    abc_records = [r for r in records if 'identified_behaviors' in r]
+    
+    if not abc_records:
+        return [], None
+    
     # 收集所有行为
     all_behaviors_list = []
     unique_behaviors = set()
     
-    for record in records:
-        if 'identified_behaviors' in record:
-            behaviors = []
-            for domain_behaviors in record['identified_behaviors'].values():
-                behaviors.extend(domain_behaviors)
-            all_behaviors_list.append(behaviors)
-            unique_behaviors.update(behaviors)
+    for record in abc_records:
+        behaviors = []
+        for domain_behaviors in record['identified_behaviors'].values():
+            behaviors.extend(domain_behaviors)
+        all_behaviors_list.append(behaviors)
+        unique_behaviors.update(behaviors)
     
     unique_behaviors = list(unique_behaviors)
     n_behaviors = len(unique_behaviors)
@@ -454,7 +843,7 @@ def analyze_behavior_associations(records, min_support=0.1):
                         co_occurrence[i][j] += 1
     
     # 计算支持度和置信度
-    total_records = len(records)
+    total_records = len(abc_records)
     associations = []
     
     for i, behavior1 in enumerate(unique_behaviors):
@@ -490,7 +879,7 @@ def analyze_behavior_associations(records, min_support=0.1):
 
 def get_behavior_summary_stats(records):
     """
-    获取行为出现的汇总统计
+    获取行为出现的汇总统计（仅适用于ABC记录）
     
     参数:
     - records: 评估记录列表
@@ -498,6 +887,19 @@ def get_behavior_summary_stats(records):
     返回:
     - behavior_stats: 行为统计信息字典
     """
+    # 只处理ABC记录
+    abc_records = [r for r in records if 'identified_behaviors' in r]
+    
+    if not abc_records:
+        return {
+            'total_records': 0,
+            'unique_behaviors_count': 0,
+            'behavior_rankings': [],
+            'domain_breakdown': {},
+            'most_common': [],
+            'least_common': []
+        }
+    
     behavior_counts = {}
     domain_behavior_counts = {
         "感觉领域": {},
@@ -507,23 +909,22 @@ def get_behavior_summary_stats(records):
         "社交与自理领域": {}
     }
     
-    for record in records:
-        if 'identified_behaviors' in record:
-            for domain, behaviors in record['identified_behaviors'].items():
-                for behavior in behaviors:
-                    # 总体统计
-                    if behavior not in behavior_counts:
-                        behavior_counts[behavior] = 0
-                    behavior_counts[behavior] += 1
-                    
-                    # 分领域统计
-                    if domain in domain_behavior_counts:
-                        if behavior not in domain_behavior_counts[domain]:
-                            domain_behavior_counts[domain][behavior] = 0
-                        domain_behavior_counts[domain][behavior] += 1
+    for record in abc_records:
+        for domain, behaviors in record['identified_behaviors'].items():
+            for behavior in behaviors:
+                # 总体统计
+                if behavior not in behavior_counts:
+                    behavior_counts[behavior] = 0
+                behavior_counts[behavior] += 1
+                
+                # 分领域统计
+                if domain in domain_behavior_counts:
+                    if behavior not in domain_behavior_counts[domain]:
+                        domain_behavior_counts[domain][behavior] = 0
+                    domain_behavior_counts[domain][behavior] += 1
     
     # 计算百分比
-    total_records = len(records)
+    total_records = len(abc_records)
     behavior_percentages = {
         behavior: {
             'count': count,
