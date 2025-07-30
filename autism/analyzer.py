@@ -141,7 +141,7 @@ def generate_dsm5_analysis(records):
 
 
 def generate_mixed_analysis(records):
-    """生成混合标准的分析报告"""
+    """生成混合标准（ABC和DSM-5）的分析报告"""
     # 分离不同标准的记录
     abc_records = [r for r in records if r.get('assessment_standard', 'ABC') == 'ABC']
     dsm5_records = [r for r in records if r.get('assessment_standard', 'ABC') == 'DSM5']
@@ -575,11 +575,12 @@ def prepare_clinical_export_data(records):
     return export_data
 
 
-# ========== 保留原有的高级分析功能 ==========
+# ========== ABC专用高级分析功能 ==========
+# 注意：以下功能仅适用于ABC量表评估数据
 
 def extract_behavior_specific_samples(records, target_behaviors, logic='OR'):
     """
-    从评估记录中提取包含特定行为的样本
+    从评估记录中提取包含特定行为的样本 【仅支持ABC评估数据】
     
     参数:
     - records: 所有评估记录列表
@@ -589,15 +590,20 @@ def extract_behavior_specific_samples(records, target_behaviors, logic='OR'):
     返回:
     - matched_samples: 符合条件的样本列表
     - behavior_stats: 行为统计信息
+    
+    注意：此功能仅适用于ABC量表评估，因为只有ABC评估包含详细的行为识别数据
     """
     matched_samples = []
     behavior_stats = {behavior: 0 for behavior in target_behaviors}
     
-    for record in records:
-        # 只处理ABC记录（有identified_behaviors字段）
-        if 'identified_behaviors' not in record:
-            continue
-            
+    # 只处理ABC记录（有identified_behaviors字段）
+    abc_records = [r for r in records if 'identified_behaviors' in r and r.get('assessment_standard', 'ABC') == 'ABC']
+    
+    if not abc_records:
+        print("警告：没有找到ABC评估记录，无法进行行为筛选")
+        return matched_samples, behavior_stats
+    
+    for record in abc_records:
         # 收集该记录中的所有行为
         all_behaviors = []
         for domain, behaviors in record['identified_behaviors'].items():
@@ -639,6 +645,8 @@ def calculate_sample_similarity(record1, record2, weights=None):
     返回:
     - similarity: 相似度分数（0-1）
     - details: 详细的相似度信息
+    
+    注意：ABC和DSM-5使用不同的相似度计算方法
     """
     # 检查是否为相同评估标准
     if record1.get('assessment_standard', 'ABC') != record2.get('assessment_standard', 'ABC'):
@@ -772,6 +780,8 @@ def find_similar_samples(target_record, all_records, threshold=0.7, max_results=
     
     返回:
     - similar_samples: 相似样本列表，按相似度降序排列
+    
+    注意：只能比较相同评估标准的记录
     """
     similar_samples = []
     
@@ -802,7 +812,7 @@ def find_similar_samples(target_record, all_records, threshold=0.7, max_results=
 
 def analyze_behavior_associations(records, min_support=0.1):
     """
-    分析行为之间的关联关系（仅适用于ABC记录）
+    分析行为之间的关联关系 【仅支持ABC评估数据】
     
     参数:
     - records: 评估记录列表
@@ -811,11 +821,14 @@ def analyze_behavior_associations(records, min_support=0.1):
     返回:
     - associations: 行为关联规则列表
     - co_occurrence_matrix: 行为共现矩阵
+    
+    注意：此功能仅适用于ABC量表评估，因为只有ABC评估包含详细的行为识别数据
     """
     # 只处理ABC记录
-    abc_records = [r for r in records if 'identified_behaviors' in r]
+    abc_records = [r for r in records if 'identified_behaviors' in r and r.get('assessment_standard', 'ABC') == 'ABC']
     
     if not abc_records:
+        print("警告：没有找到ABC评估记录，无法进行行为关联分析")
         return [], None
     
     # 收集所有行为
@@ -879,16 +892,18 @@ def analyze_behavior_associations(records, min_support=0.1):
 
 def get_behavior_summary_stats(records):
     """
-    获取行为出现的汇总统计（仅适用于ABC记录）
+    获取行为出现的汇总统计 【仅支持ABC评估数据】
     
     参数:
     - records: 评估记录列表
     
     返回:
     - behavior_stats: 行为统计信息字典
+    
+    注意：此功能仅适用于ABC量表评估，因为只有ABC评估包含详细的行为识别数据
     """
     # 只处理ABC记录
-    abc_records = [r for r in records if 'identified_behaviors' in r]
+    abc_records = [r for r in records if 'identified_behaviors' in r and r.get('assessment_standard', 'ABC') == 'ABC']
     
     if not abc_records:
         return {
@@ -897,7 +912,8 @@ def get_behavior_summary_stats(records):
             'behavior_rankings': [],
             'domain_breakdown': {},
             'most_common': [],
-            'least_common': []
+            'least_common': [],
+            'note': '无ABC评估数据，无法进行行为统计'
         }
     
     behavior_counts = {}
