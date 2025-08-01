@@ -1,40 +1,154 @@
-"""孤独症儿童评估逻辑 - 支持DSM-5和ABC双标准"""
+"""孤独症儿童评估逻辑 - 支持统一生成、双标准评估"""
 import datetime
 import numpy as np
 from common.api_client import call_kimi_api
 from common.ui_components import generate_unique_id, add_random_variation
 from .config import (
-    CLINICAL_SCENE_CONFIG, 
-    ABC_BEHAVIOR_ITEMS, ABC_SEVERITY_PROFILES, ABC_EVALUATION_METRICS,
-    DSM5_SEVERITY_PROFILES, DSM5_EVALUATION_METRICS
+    CLINICAL_SCENE_CONFIG, UNIFIED_AUTISM_PROFILES,
+    ABC_BEHAVIOR_ITEMS, ABC_EVALUATION_METRICS,
+    DSM5_EVALUATION_METRICS
 )
 
 
-# ==================== 通用函数 ====================
+# ==================== 统一的对话生成函数 ====================
+def build_unified_autism_prompt(autism_profile):
+    """构建统一的孤独症儿童特征描述（不偏向任何评估标准）"""
+    profile_description = f"""
+    孤独症儿童行为特征配置：
+    
+    【社交特征】：{autism_profile['social_characteristics']}
+    
+    【沟通特征】：{autism_profile['communication_characteristics']}
+    
+    【行为特征】：{autism_profile['behavioral_characteristics']}
+    
+    【认知特征】：{autism_profile['cognitive_characteristics']}
+    
+    【情绪特征】：{autism_profile['emotional_characteristics']}
+    
+    【日常生活】：{autism_profile['daily_living']}
+    
+    【典型行为示例】：
+    """
+    
+    # 添加行为示例
+    for i, example in enumerate(autism_profile['behavioral_examples'], 1):
+        profile_description += f"\n    {i}. {example}"
+    
+    system_prompt = (
+        "你是一个专业的临床行为观察专家。请基于以下孤独症儿童的特征描述，"
+        "真实地模拟该儿童在特定情境下的行为表现。\n"
+        + profile_description +
+        "\n\n行为表现要求："
+        "\n1. 准确体现该儿童的社交、沟通、行为等各方面特征"
+        "\n2. 行为表现要具体、生动、符合真实的孤独症儿童"
+        "\n3. 包含足够的细节供后续评估（如具体动作、语言、反应等）"
+        "\n4. 避免过于戏剧化，保持真实性"
+        "\n\n严格格式：\"角色名:发言内容\"。每句换行。"
+        "\n如需描述非语言行为，使用括号说明，如：孤独症儿童:（拍手）（看着窗外）"
+    )
+    
+    return system_prompt
+
+
+def call_kimi_with_unified_profile(prompt, autism_profile):
+    """调用API生成基于统一配置的孤独症儿童对话"""
+    system_prompt = build_unified_autism_prompt(autism_profile)
+    return call_kimi_api(prompt, system_prompt, temperature=0.7)
+
+
+# ==================== 修改后的实验运行函数 ====================
 def run_single_experiment(experiment_config):
-    """运行单个实验 - 支持DSM-5和ABC双标准"""
+    """运行单个实验 - 生成一次对话，同时进行ABC和DSM-5评估"""
     try:
-        # 获取评估标准
-        assessment_standard = experiment_config.get('assessment_standard', 'ABC')
+        scene_data = CLINICAL_SCENE_CONFIG[experiment_config['scene']]
         
-        if assessment_standard == 'DSM5':
-            return run_dsm5_experiment(experiment_config)
-        else:  # 默认使用ABC
-            return run_abc_experiment(experiment_config)
+        # 构建统一的prompt（不提及任何评估标准）
+        prompt = (
+            f"临床观察情境：{experiment_config['scene']} - {experiment_config['activity']}\n"
+            f"观察要点：{', '.join(scene_data['observation_points'][:3])}\n"
+            f"触发因素：{experiment_config['trigger']}\n"
+            f"参与角色：孤独症儿童、{scene_data['roles'][1]}、{scene_data['roles'][2]}\n"
+            f"请模拟该孤独症儿童在此情境下的真实行为表现。\n"
+            f"要求：15-20轮对话，真实体现儿童的特征，包含具体的行为细节。\n"
+            f"格式：'角色名:内容'，每句换行。非语言行为用括号描述。"
+        )
+        
+        # 生成对话（只生成一次）
+        dialogue = call_kimi_with_unified_profile(prompt, experiment_config['autism_profile'])
+        
+        # 同时进行两种评估
+        # 1. ABC评估
+        abc_scores, identified_behaviors = evaluate_abc_behaviors(
+            dialogue, 
+            experiment_config['autism_profile'], 
+            scene_data
+        )
+        abc_total_score = sum(abc_scores.values())
+        abc_severity = get_abc_severity_level(abc_total_score)
+        
+        # 2. DSM-5评估
+        dsm5_scores = evaluate_dsm5_dialogue(
+            dialogue, 
+            experiment_config['autism_profile'], 
+            scene_data
+        )
+        clinical_observations = extract_dsm5_observations(dialogue)
+        
+        # 构建统一的记录结构
+        record = {
+            'experiment_id': experiment_config['experiment_id'],
+            'timestamp': datetime.datetime.now(),
+            'template': experiment_config['template'],
+            'scene': experiment_config['scene'],
+            'activity': experiment_config['activity'],
+            'trigger': experiment_config['trigger'],
+            'autism_profile': experiment_config['autism_profile'],
+            'dialogue': dialogue,
             
+            # ABC评估结果
+            'abc_evaluation': {
+                'total_score': abc_total_score,
+                'severity': abc_severity,
+                'domain_scores': abc_scores,
+                'identified_behaviors': identified_behaviors
+            },
+            
+            # DSM-5评估结果
+            'dsm5_evaluation': {
+                'scores': dsm5_scores,
+                'clinical_observations': clinical_observations,
+                'core_symptom_average': (dsm5_scores.get('社交互动质量', 0) + 
+                                        dsm5_scores.get('沟通交流能力', 0) + 
+                                        dsm5_scores.get('刻板重复行为', 0)) / 3
+            },
+            
+            'notes': f"统一评估 - {experiment_config['template']}",
+            
+            # 保留兼容性字段（用于旧代码）
+            'assessment_standard': 'UNIFIED',
+            'evaluation_scores': {**abc_scores, **dsm5_scores},  # 合并两种评分
+            'abc_total_score': abc_total_score,
+            'abc_severity': abc_severity,
+            'identified_behaviors': identified_behaviors,
+            'clinical_observations': clinical_observations
+        }
+        
+        return record
+        
     except Exception as e:
         return {
             'experiment_id': experiment_config['experiment_id'],
             'timestamp': datetime.datetime.now(),
             'error': str(e),
             'template': experiment_config.get('template', 'unknown'),
-            'scene': experiment_config.get('scene', 'unknown'),
-            'assessment_standard': experiment_config.get('assessment_standard', 'ABC')
+            'scene': experiment_config.get('scene', 'unknown')
         }
 
 
-def generate_experiment_batch(templates, scenes, num_experiments_per_combo=3, assessment_standard='ABC'):
-    """生成批量实验配置 - 支持指定评估标准"""
+def generate_experiment_batch(templates, scenes, num_experiments_per_combo=3, assessment_standard=None):
+    """生成批量实验配置 - 不再需要指定评估标准"""
+    # assessment_standard参数保留但忽略，用于向后兼容
     experiments = []
     experiment_counter = 0
     
@@ -45,23 +159,20 @@ def generate_experiment_batch(templates, scenes, num_experiments_per_combo=3, as
                     for i in range(num_experiments_per_combo):
                         experiment_counter += 1
                         
-                        # 根据评估标准添加不同的变异
+                        # 添加轻微的随机变异
                         varied_profile = profile.copy()
                         
-                        if assessment_standard == 'DSM5':
-                            # DSM-5标准的变异
-                            for key in ['social_communication', 'restricted_repetitive', 'sensory_processing']:
-                                if key in varied_profile:
-                                    variation = np.random.randint(-1, 2)
-                                    varied_profile[key] = max(1, min(5, varied_profile[key] + variation))
-                        else:  # ABC标准
-                            # ABC标准的变异
-                            varied_profile['behavior_frequency'] = max(0.1, min(1.0, 
-                                profile['behavior_frequency'] + np.random.uniform(-0.1, 0.1)))
+                        # 对行为示例进行轻微变化（随机选择部分示例）
+                        if 'behavioral_examples' in varied_profile:
+                            examples = varied_profile['behavioral_examples']
+                            if len(examples) > 3:
+                                # 随机选择3-5个示例
+                                num_examples = np.random.randint(3, min(6, len(examples) + 1))
+                                selected_examples = np.random.choice(examples, num_examples, replace=False)
+                                varied_profile['behavioral_examples'] = list(selected_examples)
                         
                         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
-                        prefix = 'DSM5' if assessment_standard == 'DSM5' else 'ABC'
-                        unique_id = f"{prefix}_{experiment_counter:03d}_{template_name[:4]}_{scene_name[:4]}_{timestamp}"
+                        unique_id = f"UNI_{experiment_counter:03d}_{template_name[:4]}_{scene_name[:4]}_{timestamp}"
                         
                         experiments.append({
                             'template': template_name,
@@ -70,130 +181,13 @@ def generate_experiment_batch(templates, scenes, num_experiments_per_combo=3, as
                             'trigger': trigger,
                             'autism_profile': varied_profile,
                             'experiment_id': unique_id,
-                            'batch_index': experiment_counter,
-                            'assessment_standard': assessment_standard
+                            'batch_index': experiment_counter
                         })
     
     return experiments
 
 
-# ==================== ABC评估相关函数 ====================
-def build_abc_prompt(autism_profile):
-    """构建基于ABC量表的孤独症儿童特征描述"""
-    profile_description = f"""
-    孤独症儿童行为特征配置（基于ABC量表）：
-    - 严重程度: {autism_profile['description']}
-    - ABC总分范围: {autism_profile['total_score_range'][0]}-{autism_profile['total_score_range'][1]}
-    - 感觉异常程度: {autism_profile['sensory_abnormal']*100:.0f}%
-    - 交往障碍程度: {autism_profile['social_impairment']*100:.0f}%
-    - 躯体运动刻板程度: {autism_profile['motor_stereotypy']*100:.0f}%
-    - 语言缺陷程度: {autism_profile['language_deficit']*100:.0f}%
-    - 自理缺陷程度: {autism_profile['self_care_deficit']*100:.0f}%
-    - 异常行为出现频率: {autism_profile['behavior_frequency']*100:.0f}%
-    """
-    
-    behavior_examples = get_abc_behavior_examples(autism_profile)
-    
-    system_prompt = (
-        "你是一个专业的孤独症临床行为专家，请严格按照ABC量表的行为特征来模拟孤独症儿童的行为：\n"
-        + profile_description +
-        f"\n该儿童应表现出以下典型行为：\n{behavior_examples}"
-        "\n行为表现要求："
-        "\n1. 感觉异常：根据程度展现对声音、光线、触觉等的异常反应"
-        "\n2. 交往障碍：体现目光回避、社交冷漠、缺乏主动交流等"
-        "\n3. 躯体运动：展现重复刻板动作、特殊姿势、自我刺激等"
-        "\n4. 语言问题：根据程度表现无语言、鹦鹉学舌、语调异常等"
-        "\n5. 自理问题：展现生活自理困难、特殊依恋、情绪不稳等"
-        "\n严格格式：\"角色名:发言内容\"。每句换行，行为表现要符合ABC量表描述。"
-    )
-    
-    return system_prompt
-
-
-def get_abc_behavior_examples(profile):
-    """根据ABC严重程度获取典型行为示例"""
-    severity_level = profile['description']
-    behavior_examples = []
-    
-    # 根据各领域的异常程度添加相应行为
-    if profile['sensory_abnormal'] > 0.5:
-        behavior_examples.append("• 对特定声音过度敏感或完全忽视")
-        behavior_examples.append("• 喜欢看旋转物体或亮光")
-    
-    if profile['social_impairment'] > 0.5:
-        behavior_examples.append("• 避免目光接触，不回应呼唤")
-        behavior_examples.append("• 独自玩耍，对他人情感无反应")
-    
-    if profile['motor_stereotypy'] > 0.5:
-        behavior_examples.append("• 反复拍手、摇摆身体或旋转")
-        behavior_examples.append("• 踮脚尖走路或特殊手指动作")
-    
-    if profile['language_deficit'] > 0.5:
-        behavior_examples.append("• 无语言或仅有少量词汇")
-        behavior_examples.append("• 重复他人话语，答非所问")
-    
-    if profile['self_care_deficit'] > 0.5:
-        behavior_examples.append("• 生活自理能力差，需要帮助")
-        behavior_examples.append("• 情绪不稳定，有特殊依恋物")
-    
-    return '\n'.join(behavior_examples)
-
-
-def call_kimi_with_abc_profile(prompt, autism_profile):
-    """调用API生成基于ABC的孤独症儿童对话"""
-    system_prompt = build_abc_prompt(autism_profile)
-    return call_kimi_api(prompt, system_prompt, temperature=0.6)
-
-
-def run_abc_experiment(experiment_config):
-    """运行ABC标准的实验"""
-    scene_data = CLINICAL_SCENE_CONFIG[experiment_config['scene']]
-    
-    # 构建基于ABC量表的prompt
-    prompt = (
-        f"临床观察情境：{experiment_config['scene']} - {experiment_config['activity']}\n"
-        f"观察要点：{', '.join(scene_data['observation_points'][:3])}\n"
-        f"触发因素：{experiment_config['trigger']}\n"
-        f"参与角色：孤独症儿童、{scene_data['roles'][1]}、{scene_data['roles'][2]}\n"
-        f"请基于ABC孤独症行为量表，模拟该儿童在此情境下的真实行为表现。\n"
-        f"要求：15-20轮对话，体现ABC量表中的典型行为（感觉异常、交往障碍、刻板动作、语言问题、自理缺陷），"
-        f"行为表现符合该严重程度的特征。\n"
-        f"格式：'角色名:内容'，每句换行。"
-    )
-    
-    dialogue = call_kimi_with_abc_profile(prompt, experiment_config['autism_profile'])
-    
-    # 使用ABC量表评估
-    evaluation_scores, identified_behaviors = evaluate_abc_behaviors(
-        dialogue, 
-        experiment_config['autism_profile'], 
-        scene_data
-    )
-    
-    # 计算ABC总分
-    total_score = sum(evaluation_scores.values())
-    
-    record = {
-        'experiment_id': experiment_config['experiment_id'],
-        'timestamp': datetime.datetime.now(),
-        'template': experiment_config['template'],
-        'scene': experiment_config['scene'],
-        'activity': experiment_config['activity'],
-        'trigger': experiment_config['trigger'],
-        'autism_profile': experiment_config['autism_profile'],
-        'dialogue': dialogue,
-        'evaluation_scores': evaluation_scores,
-        'abc_total_score': total_score,
-        'abc_severity': get_abc_severity_level(total_score),
-        'identified_behaviors': identified_behaviors,
-        'clinical_observations': extract_abc_observations(dialogue, identified_behaviors),
-        'notes': f"ABC量表评估 - {experiment_config['template']}",
-        'assessment_standard': 'ABC'
-    }
-    
-    return record
-
-
+# ==================== ABC评估函数（保持不变） ====================
 def evaluate_abc_behaviors(dialogue, autism_profile, scene_info):
     """基于ABC量表评估对话中的行为表现"""
     lines = dialogue.split('\n')
@@ -218,8 +212,15 @@ def evaluate_abc_behaviors(dialogue, autism_profile, scene_info):
         "社交与自理领域": []
     }
     
-    # 基于严重程度的行为出现概率
-    behavior_probability = autism_profile['behavior_frequency']
+    # 根据整体功能水平估算行为出现概率
+    functioning_level = autism_profile.get('overall_functioning', 'need_support')
+    behavior_probability = {
+        'mainstream_with_support': 0.3,
+        'need_support': 0.5,
+        'need_substantial_support': 0.7,
+        'need_very_substantial_support': 0.9,
+        'variable_support_needs': 0.6
+    }.get(functioning_level, 0.5)
     
     # 评估感觉领域行为
     sensory_score = evaluate_sensory_behaviors(
@@ -280,15 +281,176 @@ def get_abc_severity_level(total_score):
         return "非孤独症"
 
 
-def extract_abc_observations(dialogue, identified_behaviors):
-    """从对话中提取ABC量表的行为观察"""
+# ==================== DSM-5评估函数（保持不变） ====================
+def evaluate_dsm5_dialogue(dialogue, autism_profile, scene_info):
+    """基于DSM-5标准评估对话质量"""
+    lines = dialogue.split('\n')
+    autism_child_lines = [line for line in lines if '孤独症儿童' in line]
+    
+    if not autism_child_lines:
+        return {metric: 0.0 for metric in DSM5_EVALUATION_METRICS.keys()}
+    
+    evaluation_scores = {}
+    
+    # 根据整体功能水平设置基础分数
+    functioning_level = autism_profile.get('overall_functioning', 'need_support')
+    base_severity = {
+        'mainstream_with_support': 2,
+        'need_support': 3,
+        'need_substantial_support': 4,
+        'need_very_substantial_support': 5,
+        'variable_support_needs': 3
+    }.get(functioning_level, 3)
+    
+    # 社交互动质量评估
+    interaction_indicators = 0
+    
+    # 检查社交发起行为
+    proactive_social = len([line for line in autism_child_lines if any(word in line for word in ['我想', '我们一起', '可以吗', '你好'])])
+    if proactive_social > 0:
+        interaction_indicators += 1
+    
+    # 检查社交反应
+    responsive_social = len([line for line in autism_child_lines if any(word in line for word in ['好的', '是的', '不要', '谢谢'])])
+    if responsive_social > len(autism_child_lines) * 0.3:
+        interaction_indicators += 1
+    
+    social_score = base_severity - (interaction_indicators * 0.5)
+    evaluation_scores["社交互动质量"] = max(1, min(5, social_score))
+    
+    # 沟通交流能力评估
+    communication_quality = 0
+    
+    # 检查语言功能性
+    functional_language = len([line for line in autism_child_lines if any(word in line for word in ['我要', '帮助', '不懂', '为什么'])])
+    if functional_language > 0:
+        communication_quality += 1
+    
+    # 检查回声式语言（重复他人话语）
+    echolalia_signs = len([line for line in autism_child_lines if '?' in line and len(line.split()) < 5])
+    if echolalia_signs > 0:
+        communication_quality -= 0.5
+    
+    comm_score = base_severity - communication_quality + 0.5
+    evaluation_scores["沟通交流能力"] = max(1, min(5, comm_score))
+    
+    # 刻板重复行为评估
+    repetitive_indicators = 0
+    
+    # 检查重复表达
+    repeated_phrases = len(set(autism_child_lines)) / len(autism_child_lines) if autism_child_lines else 1
+    if repeated_phrases < 0.7:  # 如果重复率高
+        repetitive_indicators += 1
+    
+    # 检查括号中的刻板动作描述
+    stereotyped_actions = len([line for line in autism_child_lines if '（' in line and any(word in line for word in ['拍手', '摇', '转', '跳'])])
+    if stereotyped_actions > 0:
+        repetitive_indicators += 1
+    
+    repetitive_score = base_severity + (repetitive_indicators * 0.5)
+    evaluation_scores["刻板重复行为"] = max(1, min(5, repetitive_score))
+    
+    # 感官处理能力评估  
+    sensory_responses = 0
+    
+    # 检查感官相关反应
+    sensory_words = ['太吵', '太亮', '不喜欢', '害怕', '疼', '舒服', '声音', '光']
+    sensory_mentions = len([line for line in autism_child_lines 
+                           if any(word in line for word in sensory_words)])
+    if sensory_mentions > 0:
+        sensory_responses = min(sensory_mentions * 0.3, 1.0)
+    
+    sensory_score = base_severity - (sensory_responses * 0.5) + 0.3
+    evaluation_scores["感官处理能力"] = max(1, min(5, sensory_score))
+    
+    # 情绪行为调节评估
+    emotion_regulation = 0
+    
+    # 检查情绪表达
+    emotion_words = ['开心', '难过', '生气', '害怕', '着急', '不高兴']
+    emotion_expressions = len([line for line in autism_child_lines 
+                              if any(word in line for word in emotion_words)])
+    if emotion_expressions > 0:
+        emotion_regulation += 0.5
+    
+    # 检查调节策略
+    regulation_words = ['我需要', '休息', '安静', '停止']
+    regulation_attempts = len([line for line in autism_child_lines 
+                              if any(word in line for word in regulation_words)])
+    if regulation_attempts > 0:
+        emotion_regulation += 0.5
+    
+    emotion_score = base_severity - emotion_regulation + 0.3
+    evaluation_scores["情绪行为调节"] = max(1, min(5, emotion_score))
+    
+    # 认知适应功能评估
+    adaptation_quality = 0
+    
+    # 检查问题解决尝试
+    problem_solving = len([line for line in autism_child_lines 
+                          if any(word in line for word in ['怎么办', '试试', '想想', '办法'])])
+    if problem_solving > 0:
+        adaptation_quality += 0.5
+    
+    # 检查学习表现
+    learning_indicators = len([line for line in autism_child_lines 
+                              if any(word in line for word in ['学会', '知道了', '明白', '记住'])])
+    if learning_indicators > 0:
+        adaptation_quality += 0.5
+    
+    cognitive_score = base_severity - adaptation_quality + 0.2
+    evaluation_scores["认知适应功能"] = max(1, min(5, cognitive_score))
+    
+    # 添加随机变异模拟真实评估的不确定性
+    for metric in evaluation_scores:
+        variation = np.random.normal(0, 0.2)  # 小幅随机变化
+        evaluation_scores[metric] = max(1, min(5, evaluation_scores[metric] + variation))
+        evaluation_scores[metric] = round(evaluation_scores[metric], 2)
+    
+    return evaluation_scores
+
+
+def extract_dsm5_observations(dialogue):
+    """从对话中提取DSM-5临床观察要点"""
+    lines = dialogue.split('\n')
+    autism_child_lines = [line for line in lines if '孤独症儿童' in line]
+    
     observations = {
-        "感觉异常表现": identified_behaviors.get("感觉领域", []),
-        "交往障碍表现": identified_behaviors.get("交往领域", []),
-        "刻板动作表现": identified_behaviors.get("躯体运动领域", []),
-        "语言异常表现": identified_behaviors.get("语言领域", []),
-        "自理问题表现": identified_behaviors.get("社交与自理领域", [])
+        "社交行为观察": [],
+        "语言沟通特点": [],
+        "重复行为表现": [],
+        "感官反应": [],
+        "情绪调节": []
     }
+    
+    for line in autism_child_lines:
+        # 社交行为识别
+        if any(word in line for word in ['你好', '再见', '一起', '朋友']):
+            observations["社交行为观察"].append("主动社交尝试")
+        elif any(word in line for word in ['不要', '不喜欢', '走开']):
+            observations["社交行为观察"].append("社交回避行为")
+        
+        # 语言特点识别  
+        if line.count('是') > 2 or line.count('不') > 2:
+            observations["语言沟通特点"].append("回声式语言特征")
+        if any(word in line for word in ['为什么', '什么时候', '在哪里']):
+            observations["语言沟通特点"].append("疑问句使用")
+        
+        # 重复行为识别
+        if any(word in line for word in ['又', '还要', '一直', '再']):
+            observations["重复行为表现"].append("重复需求表达")
+        if '（' in line and '）' in line:
+            action = line[line.find('（')+1:line.find('）')]
+            if any(word in action for word in ['拍', '摇', '转', '跳']):
+                observations["重复行为表现"].append(f"刻板动作：{action}")
+        
+        # 感官反应识别
+        if any(word in line for word in ['太吵', '太亮', '疼', '痒']):
+            observations["感官反应"].append("感官过敏反应")
+        
+        # 情绪识别
+        if any(word in line for word in ['生气', '难过', '害怕', '开心']):
+            observations["情绪调节"].append("情绪表达尝试")
     
     # 清理空列表
     observations = {k: v for k, v in observations.items() if v}
@@ -296,7 +458,7 @@ def extract_abc_observations(dialogue, identified_behaviors):
     return observations
 
 
-# ABC评估的辅助函数
+# ==================== ABC评估辅助函数（保持不变） ====================
 def get_max_score_for_domain(domain):
     """获取各领域的最高分"""
     max_scores = {
@@ -592,255 +754,3 @@ def check_stereotyped_language(child_lines):
             return True
     
     return False
-
-
-# ==================== DSM-5评估相关函数 ====================
-def build_dsm5_prompt(autism_profile):
-    """构建基于DSM-5标准的孤独症儿童特征描述"""
-    profile_description = f"""
-    孤独症儿童临床特征配置（基于DSM-5标准）：
-    - DSM-5严重程度: {autism_profile.get('dsm5_severity', '未指定')}
-    - 社交沟通缺陷程度: {autism_profile['social_communication']}/5 (5为最严重)
-    - 刻板重复行为程度: {autism_profile['restricted_repetitive']}/5
-    - 感官处理异常: {autism_profile['sensory_processing']}/5
-    - 认知功能水平: {autism_profile['cognitive_function']}/5 (1为重度障碍，5为正常)
-    - 适应行为能力: {autism_profile['adaptive_behavior']}/5
-    - 语言发展水平: {autism_profile['language_level']}/5
-    - 特殊兴趣领域: {autism_profile['special_interests']}
-    - 所需支持水平: {autism_profile.get('support_needs', '未指定')}
-    """
-    
-    system_prompt = (
-        "你是一个专业的孤独症临床行为专家，请严格按照以下DSM-5诊断标准和临床特征来模拟孤独症儿童的行为：\n"
-        + profile_description +
-        "\n核心症状表现要求："
-        "\n1. 社交沟通缺陷：根据严重程度展现眼神回避、社交发起困难、情感分享受限等"
-        "\n2. 刻板重复行为：体现重复动作、仪式化行为、狭隘兴趣、感官异常等"
-        "\n3. 感官处理：根据敏感度显示过敏、寻求或逃避特定感官刺激"
-        "\n4. 语言特点：根据语言水平展现回声式语言、字面理解、语用困难等"
-        "\n5. 情绪调节：根据调节能力显示情绪爆发、自我安抚行为等"
-        "\n严格格式：\"角色名:发言内容\"。每句换行，语言真实自然，行为符合临床观察特点。"
-    )
-    
-    return system_prompt
-
-
-def call_kimi_with_dsm5_profile(prompt, autism_profile):
-    """调用API生成基于DSM-5的孤独症儿童对话"""
-    system_prompt = build_dsm5_prompt(autism_profile)
-    return call_kimi_api(prompt, system_prompt, temperature=0.6)
-
-
-def run_dsm5_experiment(experiment_config):
-    """运行DSM-5标准的实验"""
-    scene_data = CLINICAL_SCENE_CONFIG[experiment_config['scene']]
-    
-    # 构建基于DSM-5的prompt
-    prompt = (
-        f"临床观察情境：{experiment_config['scene']} - {experiment_config['activity']}\n"
-        f"观察要点：{', '.join(scene_data['observation_points'][:3])}\n"
-        f"触发因素：{experiment_config['trigger']}\n"
-        f"参与角色：孤独症儿童、{scene_data['roles'][1]}、{scene_data['roles'][2]}\n"
-        f"请基于DSM-5孤独症诊断标准，模拟该儿童在此情境下的真实行为表现。\n"
-        f"要求：15-20轮对话，体现核心症状（社交沟通缺陷、刻板重复行为），"
-        f"语言和行为符合该严重程度的临床特征。\n"
-        f"格式：'角色名:内容'，每句换行。"
-    )
-    
-    dialogue = call_kimi_with_dsm5_profile(prompt, experiment_config['autism_profile'])
-    
-    # 使用DSM-5标准评估
-    evaluation_scores = evaluate_dsm5_dialogue(
-        dialogue, 
-        experiment_config['autism_profile'], 
-        scene_data
-    )
-    
-    record = {
-        'experiment_id': experiment_config['experiment_id'],
-        'timestamp': datetime.datetime.now(),
-        'template': experiment_config['template'],
-        'scene': experiment_config['scene'],
-        'activity': experiment_config['activity'],
-        'trigger': experiment_config['trigger'],
-        'autism_profile': experiment_config['autism_profile'],
-        'dialogue': dialogue,
-        'evaluation_scores': evaluation_scores,
-        'clinical_observations': extract_dsm5_observations(dialogue),
-        'notes': f"DSM-5标准评估 - {experiment_config['template']}",
-        'assessment_standard': 'DSM5'
-    }
-    
-    return record
-
-
-def evaluate_dsm5_dialogue(dialogue, autism_profile, scene_info):
-    """基于DSM-5标准评估对话质量"""
-    lines = dialogue.split('\n')
-    autism_child_lines = [line for line in lines if '孤独症儿童' in line]
-    
-    if not autism_child_lines:
-        return {metric: 0.0 for metric in DSM5_EVALUATION_METRICS.keys()}
-    
-    evaluation_scores = {}
-    
-    # 社交互动质量评估
-    social_base = autism_profile['social_communication']
-    interaction_indicators = 0
-    
-    # 检查社交发起行为
-    proactive_social = len([line for line in autism_child_lines if any(word in line for word in ['我想', '我们一起', '可以吗', '你好'])])
-    if proactive_social > 0:
-        interaction_indicators += 1
-    
-    # 检查社交反应
-    responsive_social = len([line for line in autism_child_lines if any(word in line for word in ['好的', '是的', '不要', '谢谢'])])
-    if responsive_social > len(autism_child_lines) * 0.3:
-        interaction_indicators += 1
-    
-    social_score = social_base - (interaction_indicators * 0.5)
-    evaluation_scores["社交互动质量"] = max(1, min(5, social_score))
-    
-    # 沟通交流能力评估
-    comm_base = autism_profile['social_communication']
-    communication_quality = 0
-    
-    # 检查语言功能性
-    functional_language = len([line for line in autism_child_lines if any(word in line for word in ['我要', '帮助', '不懂', '为什么'])])
-    if functional_language > 0:
-        communication_quality += 1
-    
-    # 检查回声式语言（重复他人话语）
-    echolalia_signs = len([line for line in autism_child_lines if '?' in line and len(line.split()) < 5])
-    if echolalia_signs > 0:
-        communication_quality -= 0.5
-    
-    # 根据语言水平调整
-    language_modifier = (autism_profile['language_level'] - 3) * 0.3
-    comm_score = comm_base - communication_quality + language_modifier
-    evaluation_scores["沟通交流能力"] = max(1, min(5, comm_score))
-    
-    # 刻板重复行为评估
-    repetitive_base = autism_profile['restricted_repetitive']
-    repetitive_indicators = 0
-    
-    # 检查重复表达
-    repeated_phrases = len(set(autism_child_lines)) / len(autism_child_lines) if autism_child_lines else 1
-    if repeated_phrases < 0.7:  # 如果重复率高
-        repetitive_indicators += 1
-    
-    # 检查特殊兴趣相关表达
-    special_interest_mentions = len([line for line in autism_child_lines 
-                                   if any(interest.lower() in line.lower() 
-                                         for interest in autism_profile['special_interests'].split('、'))])
-    if special_interest_mentions > len(autism_child_lines) * 0.3:
-        repetitive_indicators += 1
-    
-    repetitive_score = repetitive_base + (repetitive_indicators * 0.5)
-    evaluation_scores["刻板重复行为"] = max(1, min(5, repetitive_score))
-    
-    # 感官处理能力评估  
-    sensory_base = autism_profile['sensory_processing']
-    sensory_responses = 0
-    
-    # 检查感官相关反应
-    sensory_words = ['太吵', '太亮', '不喜欢', '害怕', '疼', '舒服']
-    sensory_mentions = len([line for line in autism_child_lines 
-                           if any(word in line for word in sensory_words)])
-    if sensory_mentions > 0:
-        sensory_responses = min(sensory_mentions * 0.3, 1.0)
-    
-    sensory_score = sensory_base - (sensory_responses * 0.5)
-    evaluation_scores["感官处理能力"] = max(1, min(5, sensory_score))
-    
-    # 情绪行为调节评估
-    emotion_base = autism_profile['social_communication']  # 基于社交沟通缺陷推断情绪调节
-    emotion_regulation = 0
-    
-    # 检查情绪表达
-    emotion_words = ['开心', '难过', '生气', '害怕', '着急', '不高兴']
-    emotion_expressions = len([line for line in autism_child_lines 
-                              if any(word in line for word in emotion_words)])
-    if emotion_expressions > 0:
-        emotion_regulation += 0.5
-    
-    # 检查调节策略
-    regulation_words = ['我需要', '休息', '安静', '停止']
-    regulation_attempts = len([line for line in autism_child_lines 
-                              if any(word in line for word in regulation_words)])
-    if regulation_attempts > 0:
-        emotion_regulation += 0.5
-    
-    emotion_score = emotion_base - emotion_regulation
-    evaluation_scores["情绪行为调节"] = max(1, min(5, emotion_score))
-    
-    # 认知适应功能评估
-    cognitive_base = 6 - autism_profile['cognitive_function']  # 转换评分方向
-    adaptation_quality = 0
-    
-    # 检查问题解决尝试
-    problem_solving = len([line for line in autism_child_lines 
-                          if any(word in line for word in ['怎么办', '试试', '想想', '办法'])])
-    if problem_solving > 0:
-        adaptation_quality += 0.5
-    
-    # 检查学习表现
-    learning_indicators = len([line for line in autism_child_lines 
-                              if any(word in line for word in ['学会', '知道了', '明白', '记住'])])
-    if learning_indicators > 0:
-        adaptation_quality += 0.5
-    
-    cognitive_score = cognitive_base - adaptation_quality
-    evaluation_scores["认知适应功能"] = max(1, min(5, cognitive_score))
-    
-    # 添加随机变异模拟真实评估的不确定性
-    for metric in evaluation_scores:
-        variation = np.random.normal(0, 0.2)  # 小幅随机变化
-        evaluation_scores[metric] = max(1, min(5, evaluation_scores[metric] + variation))
-        evaluation_scores[metric] = round(evaluation_scores[metric], 2)
-    
-    return evaluation_scores
-
-
-def extract_dsm5_observations(dialogue):
-    """从对话中提取DSM-5临床观察要点"""
-    lines = dialogue.split('\n')
-    autism_child_lines = [line for line in lines if '孤独症儿童' in line]
-    
-    observations = {
-        "社交行为观察": [],
-        "语言沟通特点": [],
-        "重复行为表现": [],
-        "感官反应": [],
-        "情绪调节": []
-    }
-    
-    for line in autism_child_lines:
-        # 社交行为识别
-        if any(word in line for word in ['你好', '再见', '一起', '朋友']):
-            observations["社交行为观察"].append("主动社交尝试")
-        elif any(word in line for word in ['不要', '不喜欢', '走开']):
-            observations["社交行为观察"].append("社交回避行为")
-        
-        # 语言特点识别  
-        if line.count('是') > 2 or line.count('不') > 2:
-            observations["语言沟通特点"].append("回声式语言特征")
-        if any(word in line for word in ['为什么', '什么时候', '在哪里']):
-            observations["语言沟通特点"].append("疑问句使用")
-        
-        # 重复行为识别
-        if any(word in line for word in ['又', '还要', '一直', '再']):
-            observations["重复行为表现"].append("重复需求表达")
-        
-        # 感官反应识别
-        if any(word in line for word in ['太吵', '太亮', '疼', '痒']):
-            observations["感官反应"].append("感官过敏反应")
-        
-        # 情绪识别
-        if any(word in line for word in ['生气', '难过', '害怕', '开心']):
-            observations["情绪调节"].append("情绪表达尝试")
-    
-    # 清理空列表
-    observations = {k: v for k, v in observations.items() if v}
-    
-    return observations

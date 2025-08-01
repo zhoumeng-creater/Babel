@@ -1,4 +1,4 @@
-"""孤独症平台UI页面组件 - 支持DSM-5和ABC双标准"""
+"""孤独症平台UI页面组件 - 支持统一生成、双标准评估"""
 import streamlit as st
 import pandas as pd
 import datetime
@@ -10,8 +10,9 @@ from scipy import stats
 from common.batch_processor import run_batch_processing
 from common.ui_components import display_metric_with_color
 from .config import (
-    ABC_SEVERITY_PROFILES, CLINICAL_SCENE_CONFIG, ABC_EVALUATION_METRICS, ABC_BEHAVIOR_ITEMS,
-    DSM5_SEVERITY_PROFILES, DSM5_EVALUATION_METRICS
+    UNIFIED_AUTISM_PROFILES, CLINICAL_SCENE_CONFIG, 
+    ABC_EVALUATION_METRICS, ABC_BEHAVIOR_ITEMS,
+    DSM5_EVALUATION_METRICS
 )
 from .evaluator import run_single_experiment, generate_experiment_batch
 from .analyzer import (
@@ -20,55 +21,41 @@ from .analyzer import (
     calculate_sample_similarity,
     find_similar_samples,
     analyze_behavior_associations,
+    get_behavior_summary_stats,
     get_behavior_summary_stats
 )
 
+
 def page_quick_assessment():
-    """快速评估页面 - 支持DSM-5和ABC双标准"""
+    """快速评估页面 - 统一生成，双标准评估"""
     st.header("🩺 快速临床评估")
-    st.markdown("使用DSM-5或ABC标准进行快速临床评估")
-    
-    # 评估标准选择
-    assessment_standard = st.radio(
-        "选择评估标准",
-        ["ABC孤独症行为量表", "DSM-5诊断标准"],
-        help="ABC量表包含57个行为项目，DSM-5标准基于核心症状评估"
-    )
+    st.markdown("生成孤独症儿童行为表现，同时进行ABC和DSM-5双重评估")
     
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("📋 选择评估对象")
         
-        if assessment_standard == "ABC孤独症行为量表":
-            selected_severity = st.selectbox("严重程度分级", list(ABC_SEVERITY_PROFILES.keys()))
-            profile = ABC_SEVERITY_PROFILES[selected_severity]
+        # 使用统一的严重程度配置
+        selected_severity = st.selectbox("选择严重程度", list(UNIFIED_AUTISM_PROFILES.keys()))
+        profile = UNIFIED_AUTISM_PROFILES[selected_severity]
+        
+        # 显示统一特征
+        with st.expander("查看孤独症特征配置", expanded=True):
+            st.write(f"**类型**: {profile['name']}")
+            st.write(f"**社交特征**: {profile['social_characteristics']}")
+            st.write(f"**沟通特征**: {profile['communication_characteristics']}")
+            st.write(f"**行为特征**: {profile['behavioral_characteristics']}")
+            st.write(f"**认知特征**: {profile['cognitive_characteristics']}")
+            st.write(f"**情绪特征**: {profile['emotional_characteristics']}")
+            st.write(f"**日常生活**: {profile['daily_living']}")
             
-            # 显示ABC特征
-            with st.expander("查看ABC行为特征配置", expanded=True):
-                st.write(f"**严重程度**: {profile['description']}")
-                st.write(f"**ABC总分范围**: {profile['total_score_range'][0]}-{profile['total_score_range'][1]}")
-                st.write(f"**感觉异常程度**: {profile['sensory_abnormal']*100:.0f}%")
-                st.write(f"**交往障碍程度**: {profile['social_impairment']*100:.0f}%")
-                st.write(f"**躯体运动刻板**: {profile['motor_stereotypy']*100:.0f}%")
-                st.write(f"**语言缺陷程度**: {profile['language_deficit']*100:.0f}%")
-                st.write(f"**自理缺陷程度**: {profile['self_care_deficit']*100:.0f}%")
-                st.write(f"**异常行为频率**: {profile['behavior_frequency']*100:.0f}%")
-        else:  # DSM-5标准
-            selected_severity = st.selectbox("严重程度分级", list(DSM5_SEVERITY_PROFILES.keys()))
-            profile = DSM5_SEVERITY_PROFILES[selected_severity]
+            st.write("**典型行为示例**:")
+            for i, example in enumerate(profile['behavioral_examples'][:3], 1):
+                st.write(f"{i}. {example}")
             
-            # 显示DSM-5特征
-            with st.expander("查看DSM-5特征配置", expanded=True):
-                st.write(f"**DSM-5严重程度**: {profile['dsm5_severity']}")
-                st.write(f"**社交沟通缺陷**: {profile['social_communication']}/5")
-                st.write(f"**刻板重复行为**: {profile['restricted_repetitive']}/5")
-                st.write(f"**感官处理异常**: {profile['sensory_processing']}/5")
-                st.write(f"**认知功能水平**: {profile['cognitive_function']}/5")
-                st.write(f"**适应行为能力**: {profile['adaptive_behavior']}/5")
-                st.write(f"**语言发展水平**: {profile['language_level']}/5")
-                st.write(f"**特殊兴趣**: {profile['special_interests']}")
-                st.write(f"**所需支持**: {profile['support_needs']}")
+            if len(profile['behavioral_examples']) > 3:
+                st.write(f"...还有{len(profile['behavioral_examples'])-3}个行为示例")
         
         selected_scene = st.selectbox("选择评估情境", list(CLINICAL_SCENE_CONFIG.keys()))
         
@@ -85,9 +72,10 @@ def page_quick_assessment():
     with col2:
         st.subheader("🔬 执行评估")
         
-        if st.button("🩺 开始临床评估", type="primary", use_container_width=True):
+        st.info("💡 将生成一次行为观察，同时使用ABC量表和DSM-5标准进行评估")
+        
+        if st.button("🩺 开始双重评估", type="primary", use_container_width=True):
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
-            standard_code = 'ABC' if assessment_standard == "ABC孤独症行为量表" else 'DSM5'
             
             experiment_config = {
                 'template': selected_severity,
@@ -95,8 +83,7 @@ def page_quick_assessment():
                 'activity': selected_activity,
                 'trigger': selected_trigger,
                 'autism_profile': profile.copy(),
-                'experiment_id': f"{standard_code}_{selected_severity[:4]}_{timestamp}",
-                'assessment_standard': standard_code
+                'experiment_id': f"UNI_{selected_severity[:4]}_{timestamp}"
             }
             
             with st.spinner("🤖 正在生成临床评估对话..."):
@@ -105,122 +92,121 @@ def page_quick_assessment():
             if 'error' not in result:
                 st.session_state.experiment_records.append(result)
                 
-                st.success(f"✅ 临床评估完成！ID: {result['experiment_id']}")
+                st.success(f"✅ 双重评估完成！ID: {result['experiment_id']}")
                 
                 # 显示评估结果
-                st.subheader("📊 临床评估结果")
+                st.subheader("📊 双重评估结果对比")
                 
-                if assessment_standard == "ABC孤独症行为量表":
-                    # ABC评估结果显示
-                    total_score = result['abc_total_score']
-                    severity = result['abc_severity']
+                # 创建两列显示两种评估结果
+                col_abc, col_dsm5 = st.columns(2)
+                
+                with col_abc:
+                    st.markdown("### 📋 ABC量表评估")
+                    
+                    # ABC评估结果
+                    abc_eval = result['abc_evaluation']
+                    total_score = abc_eval['total_score']
+                    severity = abc_eval['severity']
                     
                     if total_score >= 67:
-                        st.error(f"**ABC总分: {total_score}** - {severity}")
+                        st.error(f"**ABC总分: {total_score}**")
+                        st.error(f"**判定: {severity}**")
                     elif total_score >= 53:
-                        st.warning(f"**ABC总分: {total_score}** - {severity}")
-                    elif total_score >= 40:
-                        st.info(f"**ABC总分: {total_score}** - {severity}")
+                        st.warning(f"**ABC总分: {total_score}**")
+                        st.warning(f"**判定: {severity}**")
                     else:
-                        st.success(f"**ABC总分: {total_score}** - {severity}")
+                        st.info(f"**ABC总分: {total_score}**")
+                        st.info(f"**判定: {severity}**")
                     
-                    col_result1, col_result2 = st.columns(2)
+                    st.write("**各领域得分**:")
+                    for domain, score in abc_eval['domain_scores'].items():
+                        max_score = ABC_EVALUATION_METRICS[domain]['max_score']
+                        percentage = score / max_score * 100
+                        st.write(f"• {domain}: {score}/{max_score} ({percentage:.0f}%)")
                     
-                    with col_result1:
-                        st.write("**各领域得分**:")
-                        for metric, score in result['evaluation_scores'].items():
-                            max_score = ABC_EVALUATION_METRICS[metric]['max_score']
-                            percentage = score / max_score * 100
-                            
-                            if percentage >= 60:
-                                st.error(f"{metric}: {score}/{max_score} ({percentage:.0f}%)")
-                            elif percentage >= 40:
-                                st.warning(f"{metric}: {score}/{max_score} ({percentage:.0f}%)")
-                            else:
-                                st.success(f"{metric}: {score}/{max_score} ({percentage:.0f}%)")
-                    
-                    with col_result2:
-                        st.write("**识别到的行为**:")
-                        if 'identified_behaviors' in result:
-                            for domain, behaviors in result['identified_behaviors'].items():
-                                if behaviors:
-                                    st.write(f"**{domain}**:")
-                                    for behavior in behaviors[:3]:  # 最多显示3个
-                                        st.write(f"• {behavior}")
-                    
-                    # ABC临床建议
-                    st.subheader("💡 临床建议")
-                    if total_score >= 67:
-                        st.error("🚨 建议：ABC评分显示明确孤独症表现，需要综合干预治疗")
-                    elif total_score >= 53:
-                        st.warning("⚠️ 建议：轻度孤独症表现，建议早期干预和行为训练")
-                    elif total_score >= 40:
-                        st.info("ℹ️ 建议：边缘状态，需要密切观察和定期评估")
-                    else:
-                        st.success("✅ 建议：未达孤独症标准，但仍需关注个别领域表现")
+                    # 显示识别到的主要行为
+                    if abc_eval['identified_behaviors']:
+                        st.write("**识别到的主要行为**:")
+                        behavior_count = 0
+                        for domain, behaviors in abc_eval['identified_behaviors'].items():
+                            if behaviors and behavior_count < 5:
+                                for behavior in behaviors[:2]:
+                                    st.write(f"• {behavior}")
+                                    behavior_count += 1
+                                    if behavior_count >= 5:
+                                        break
                 
-                else:  # DSM-5评估结果
-                    col_result1, col_result2 = st.columns(2)
+                with col_dsm5:
+                    st.markdown("### 🧠 DSM-5标准评估")
                     
-                    with col_result1:
-                        st.write("**核心症状评估得分** (5分为最严重):")
-                        for metric, score in result['evaluation_scores'].items():
-                            # 根据得分显示不同颜色
-                            if score >= 4.0:
-                                st.error(f"{metric}: {score}/5.0 (严重)")
-                            elif score >= 3.0:
-                                st.warning(f"{metric}: {score}/5.0 (中度)")
-                            else:
-                                st.success(f"{metric}: {score}/5.0 (轻度)")
-                    
-                    with col_result2:
-                        st.write("**临床观察要点**:")
-                        if 'clinical_observations' in result:
-                            for category, observations in result['clinical_observations'].items():
-                                if observations:
-                                    st.write(f"**{category}**: {', '.join(observations)}")
-                    
-                    # DSM-5临床建议
-                    st.subheader("💡 临床建议")
-                    core_avg = (result['evaluation_scores']['社交互动质量'] + 
-                               result['evaluation_scores']['沟通交流能力'] + 
-                               result['evaluation_scores']['刻板重复行为']) / 3
+                    # DSM-5评估结果
+                    dsm5_eval = result['dsm5_evaluation']
+                    core_avg = dsm5_eval['core_symptom_average']
                     
                     if core_avg >= 4.0:
-                        st.error("🚨 建议：核心症状严重，需要密集型干预和专业支持")
+                        st.error(f"**核心症状均值: {core_avg:.2f}/5**")
+                        st.error("**需要非常大量支持**")
                     elif core_avg >= 3.0:
-                        st.warning("⚠️ 建议：核心症状中等，建议结构化教学和行为干预")
+                        st.warning(f"**核心症状均值: {core_avg:.2f}/5**")
+                        st.warning("**需要大量支持**")
                     else:
-                        st.success("✅ 建议：症状相对较轻，可重点进行社交技能训练")
-                
-                # 对话预览（两种标准共用）
-                st.write("**对话预览**:")
-                dialogue_lines = result['dialogue'].split('\n')[:8]
-                for line in dialogue_lines:
-                    if ':' in line and line.strip():
-                        if '孤独症儿童' in line:
-                            st.markdown(f"🧒 {line}")
-                        else:
-                            st.markdown(f"👤 {line}")
-                
-                if len(result['dialogue'].split('\n')) > 8:
-                    st.markdown("*...查看完整记录请前往'评估记录管理'*")
+                        st.info(f"**核心症状均值: {core_avg:.2f}/5**")
+                        st.info("**需要支持**")
                     
+                    st.write("**各维度评分**:")
+                    for metric, score in dsm5_eval['scores'].items():
+                        severity_label = "轻度" if score < 2.5 else "中度" if score < 3.5 else "重度"
+                        st.write(f"• {metric}: {score:.2f}/5 ({severity_label})")
+                    
+                    # 显示临床观察
+                    if dsm5_eval['clinical_observations']:
+                        st.write("**临床观察要点**:")
+                        obs_count = 0
+                        for category, observations in dsm5_eval['clinical_observations'].items():
+                            if observations and obs_count < 5:
+                                for obs in observations[:1]:
+                                    st.write(f"• [{category}] {obs}")
+                                    obs_count += 1
+                                    if obs_count >= 5:
+                                        break
+                
+                # 评估一致性分析
+                st.subheader("🔄 评估一致性分析")
+                
+                # 简单的一致性判断
+                abc_severe = total_score >= 67
+                dsm5_severe = core_avg >= 3.5
+                
+                if abc_severe == dsm5_severe:
+                    st.success("✅ 两种评估标准的严重程度判断基本一致")
+                else:
+                    st.warning("⚠️ 两种评估标准的严重程度判断存在差异")
+                    if abc_severe and not dsm5_severe:
+                        st.info("ABC量表显示较严重，但DSM-5评估相对较轻")
+                    else:
+                        st.info("DSM-5评估显示较严重，但ABC量表得分相对较低")
+                
+                # 对话预览
+                with st.expander("查看行为观察对话", expanded=False):
+                    dialogue_lines = result['dialogue'].split('\n')[:15]
+                    for line in dialogue_lines:
+                        if ':' in line and line.strip():
+                            if '孤独症儿童' in line:
+                                st.markdown(f"🧒 {line}")
+                            else:
+                                st.markdown(f"👤 {line}")
+                    
+                    if len(result['dialogue'].split('\n')) > 15:
+                        st.markdown("*...查看完整记录请前往'评估记录管理'*")
+                        
             else:
                 st.error(f"❌ 评估失败: {result['error']}")
 
 
 def page_batch_research():
-    """批量研究页面 - 支持DSM-5和ABC双标准"""
+    """批量研究页面 - 统一生成，双标准评估"""
     st.header("🔬 批量临床研究")
-    st.markdown("使用DSM-5或ABC标准进行多组对照研究")
-    
-    # 评估标准选择
-    assessment_standard = st.radio(
-        "选择评估标准",
-        ["ABC孤独症行为量表", "DSM-5诊断标准"],
-        help="选择用于批量研究的评估标准"
-    )
+    st.markdown("批量生成行为样本，同时进行ABC和DSM-5双重评估对比")
     
     col1, col2 = st.columns([2, 1])
     
@@ -233,31 +219,25 @@ def page_batch_research():
             help="根据研究需要选择合适的样本规模"
         )
         
-        # 根据评估标准选择不同的严重程度配置
-        if assessment_standard == "ABC孤独症行为量表":
-            severity_profiles = ABC_SEVERITY_PROFILES
-        else:
-            severity_profiles = DSM5_SEVERITY_PROFILES
-        
         if research_scale == "试点研究（推荐）":
-            default_severities = list(severity_profiles.keys())[:2]
+            default_severities = list(UNIFIED_AUTISM_PROFILES.keys())[:2]
             default_contexts = list(CLINICAL_SCENE_CONFIG.keys())[:2]
             default_repeats = 1
-            st.info("🚀 试点研究：验证评估效果，约需5-8分钟")
+            st.info("🚀 试点研究：验证双重评估效果，约需5-8分钟")
         elif research_scale == "标准研究":
-            default_severities = list(severity_profiles.keys())[:3]
+            default_severities = list(UNIFIED_AUTISM_PROFILES.keys())[:3]
             default_contexts = list(CLINICAL_SCENE_CONFIG.keys())[:3]
             default_repeats = 2
-            st.info("⏳ 标准研究：获得可靠统计数据，约需20-30分钟")
+            st.info("⏳ 标准研究：获得可靠对比数据，约需20-30分钟")
         else:
-            default_severities = list(severity_profiles.keys())
+            default_severities = list(UNIFIED_AUTISM_PROFILES.keys())
             default_contexts = list(CLINICAL_SCENE_CONFIG.keys())
             default_repeats = 2
-            st.warning("⏰ 大样本研究：完整研究数据，约需60-90分钟")
+            st.warning("⏰ 大样本研究：完整对比研究数据，约需60-90分钟")
         
         selected_severities = st.multiselect(
             "选择严重程度组", 
-            list(severity_profiles.keys()),
+            list(UNIFIED_AUTISM_PROFILES.keys()),
             default=default_severities
         )
         
@@ -275,25 +255,21 @@ def page_batch_research():
         )
         
         if selected_severities and selected_contexts:
-            severity_dict = {k: severity_profiles[k] for k in selected_severities}
+            severity_dict = {k: UNIFIED_AUTISM_PROFILES[k] for k in selected_severities}
             context_dict = {k: CLINICAL_SCENE_CONFIG[k] for k in selected_contexts}
-            
-            standard_code = 'ABC' if assessment_standard == "ABC孤独症行为量表" else 'DSM5'
             
             experiments = generate_experiment_batch(
                 severity_dict, 
                 context_dict, 
-                repeats_per_combo,
-                assessment_standard=standard_code
+                repeats_per_combo
             )
             
-            st.info(f"📊 将生成 {len(experiments)} 个{assessment_standard}评估")
+            st.info(f"📊 将生成 {len(experiments)} 个行为样本，每个进行双重评估")
             
             # 研究设计预览
             with st.expander("研究设计预览", expanded=False):
                 preview_df = pd.DataFrame([
                     {
-                        '评估标准': assessment_standard[:3],
                         '严重程度': exp['template'],
                         '评估情境': exp['scene'],
                         '观察活动': exp['activity'],
@@ -307,44 +283,41 @@ def page_batch_research():
     with col2:
         st.subheader("🚀 执行研究")
         
-        # 使用不同的session state键来区分标准
-        batch_ready_key = f"{assessment_standard}_batch_ready"
-        batch_running_key = f"{assessment_standard}_batch_running"
-        
-        if batch_ready_key not in st.session_state:
-            st.session_state[batch_ready_key] = False
-        if batch_running_key not in st.session_state:
-            st.session_state[batch_running_key] = False
+        if 'batch_ready' not in st.session_state:
+            st.session_state.batch_ready = False
+        if 'batch_running' not in st.session_state:
+            st.session_state.batch_running = False
         
         if selected_severities and selected_contexts:
             estimated_minutes = len(experiments) * 25 / 60
             st.info(f"📊 评估数量: {len(experiments)}")
             st.info(f"⏰ 预计时间: {estimated_minutes:.1f} 分钟")
+            st.info(f"📈 将产生: {len(experiments)*2} 个评估结果")
             
-            if not st.session_state[batch_ready_key] and not st.session_state[batch_running_key]:
+            if not st.session_state.batch_ready and not st.session_state.batch_running:
                 if st.button("⚡ 准备开始研究", use_container_width=True):
-                    st.session_state[batch_ready_key] = True
+                    st.session_state.batch_ready = True
                     st.rerun()
             
-            elif st.session_state[batch_ready_key] and not st.session_state[batch_running_key]:
+            elif st.session_state.batch_ready and not st.session_state.batch_running:
                 st.warning("⏰ **重要**: 由于API限制，批量研究需要较长时间")
-                st.info("💡 确认后将立即开始，请保持网络稳定")
+                st.info("💡 每个样本将同时进行ABC和DSM-5评估")
                 
                 col_btn1, col_btn2 = st.columns(2)
                 
                 with col_btn1:
                     if st.button("❌ 取消", use_container_width=True):
-                        st.session_state[batch_ready_key] = False
+                        st.session_state.batch_ready = False
                         st.rerun()
                 
                 with col_btn2:
                     if st.button("✅ 开始研究", type="primary", use_container_width=True):
-                        st.session_state[batch_running_key] = True
-                        st.session_state[batch_ready_key] = False
+                        st.session_state.batch_running = True
+                        st.session_state.batch_ready = False
                         st.rerun()
             
-            elif st.session_state[batch_running_key]:
-                st.success(f"🔬 {assessment_standard}研究进行中...")
+            elif st.session_state.batch_running:
+                st.success("🔬 双重评估研究进行中...")
                 
                 progress_container = st.container()
                 with progress_container:
@@ -363,7 +336,7 @@ def page_batch_research():
                         experiments, 
                         run_single_experiment, 
                         update_progress,
-                        f"{assessment_standard}实验"
+                        "双重评估"
                     )
                     
                     successful_results = [r for r in results if 'error' not in r]
@@ -373,70 +346,45 @@ def page_batch_research():
                     st.session_state.current_batch_results = successful_results
                     
                     with result_container:
-                        st.success(f"✅ {assessment_standard}研究完成！")
-                        st.write(f"**成功评估**: {len(successful_results)} 个")
+                        st.success(f"✅ 双重评估研究完成！")
+                        st.write(f"**成功评估**: {len(successful_results)} 个样本")
+                        st.write(f"**评估结果**: {len(successful_results)*2} 个（ABC+DSM-5）")
                         
                         if failed_results:
                             st.error(f"**失败评估**: {len(failed_results)} 个")
                         
                         if successful_results:
-                            st.subheader("📈 研究结果概览")
+                            st.subheader("📈 双重评估结果概览")
                             
-                            if assessment_standard == "ABC孤独症行为量表":
-                                # ABC结果统计
-                                severity_stats = {}
-                                for result in successful_results:
-                                    severity = result['template']
-                                    if severity not in severity_stats:
-                                        severity_stats[severity] = []
-                                    
-                                    severity_stats[severity].append(result['abc_total_score'])
-                                
-                                stats_df = pd.DataFrame([
-                                    {
-                                        '严重程度': severity,
-                                        '样本数': len(scores),
-                                        'ABC均分': f"{np.mean(scores):.1f}",
-                                        '标准差': f"{np.std(scores):.1f}",
-                                        '95%置信区间': f"{np.mean(scores) - 1.96*np.std(scores)/np.sqrt(len(scores)):.1f}-{np.mean(scores) + 1.96*np.std(scores)/np.sqrt(len(scores)):.1f}"
-                                    } for severity, scores in severity_stats.items()
-                                ])
-                            else:
-                                # DSM-5结果统计
-                                severity_stats = {}
-                                for result in successful_results:
-                                    severity = result['template']
-                                    if severity not in severity_stats:
-                                        severity_stats[severity] = []
-                                    
-                                    # 计算核心症状综合得分
-                                    core_score = (result['evaluation_scores']['社交互动质量'] + 
-                                                result['evaluation_scores']['沟通交流能力'] + 
-                                                result['evaluation_scores']['刻板重复行为']) / 3
-                                    severity_stats[severity].append(core_score)
-                                
-                                stats_df = pd.DataFrame([
-                                    {
-                                        '严重程度': severity,
-                                        '样本数': len(scores),
-                                        '核心症状均值': f"{np.mean(scores):.2f}",
-                                        '标准差': f"{np.std(scores):.2f}",
-                                        '95%置信区间': f"{np.mean(scores) - 1.96*np.std(scores)/np.sqrt(len(scores)):.2f}-{np.mean(scores) + 1.96*np.std(scores)/np.sqrt(len(scores)):.2f}"
-                                    } for severity, scores in severity_stats.items()
-                                ])
+                            # 分析评估一致性
+                            consistency_analysis = analyze_batch_consistency(successful_results)
                             
-                            st.dataframe(stats_df, use_container_width=True)
+                            col_cons1, col_cons2, col_cons3 = st.columns(3)
+                            with col_cons1:
+                                st.metric("样本总数", len(successful_results))
+                            with col_cons2:
+                                st.metric("一致率", f"{consistency_analysis['consistency_rate']:.1f}%")
+                            with col_cons3:
+                                st.metric("相关系数", f"{consistency_analysis['correlation']:.3f}")
+                            
+                            # 显示严重程度对比
+                            comparison_df = create_severity_comparison_df(successful_results)
+                            st.dataframe(comparison_df, use_container_width=True)
+                            
+                            # 可视化对比
+                            fig = create_assessment_comparison_plot(successful_results)
+                            st.plotly_chart(fig, use_container_width=True)
                     
-                    st.session_state[batch_running_key] = False
+                    st.session_state.batch_running = False
                     
                     if st.button("🔄 进行新研究", use_container_width=True):
-                        st.session_state[batch_ready_key] = False
-                        st.session_state[batch_running_key] = False
+                        st.session_state.batch_ready = False
+                        st.session_state.batch_running = False
                         st.rerun()
                         
                 except Exception as e:
                     st.error(f"❌ 研究出错: {str(e)}")
-                    st.session_state[batch_running_key] = False
+                    st.session_state.batch_running = False
                     if st.button("🔄 重新尝试", use_container_width=True):
                         st.rerun()
         
@@ -445,16 +393,9 @@ def page_batch_research():
 
 
 def page_custom_assessment():
-    """个性化评估设计页面 - 支持DSM-5和ABC双标准"""
+    """个性化评估设计页面 - 统一生成，双标准评估"""
     st.header("⚙️ 个性化评估设计")
-    st.markdown("基于DSM-5或ABC标准自定义个体化评估参数")
-    
-    # 评估标准选择
-    assessment_standard = st.radio(
-        "选择评估标准",
-        ["ABC孤独症行为量表", "DSM-5诊断标准"],
-        help="选择个性化评估使用的标准"
-    )
+    st.markdown("自定义孤独症特征，生成行为表现并进行双重评估")
     
     col1, col2 = st.columns(2)
     
@@ -476,192 +417,118 @@ def page_custom_assessment():
     with col2:
         st.subheader("👤 特征配置")
         
-        if assessment_standard == "ABC孤独症行为量表":
-            # ABC配置
-            template_base = st.selectbox("基于标准分级", ["自定义"] + list(ABC_SEVERITY_PROFILES.keys()))
-            
-            if template_base != "自定义":
-                base_profile = ABC_SEVERITY_PROFILES[template_base].copy()
-                st.info(f"基于: {base_profile['description']}")
-            else:
-                base_profile = {
-                    'sensory_abnormal': 0.5,
-                    'social_impairment': 0.5,
-                    'motor_stereotypy': 0.5,
-                    'language_deficit': 0.5,
-                    'self_care_deficit': 0.5,
-                    'behavior_frequency': 0.5,
-                    'total_score_range': [50, 70],
-                    'description': "自定义配置"
-                }
-            
-            st.write("**各领域异常程度配置** (基于ABC量表)")
-            
-            sensory_level = st.slider(
-                "感觉异常程度", 0.0, 1.0, base_profile['sensory_abnormal'],
-                help="0=正常，1=严重异常"
-            )
-            
-            social_level = st.slider(
-                "交往障碍程度", 0.0, 1.0, base_profile['social_impairment'],
-                help="0=正常交往，1=严重障碍"
-            )
-            
-            motor_level = st.slider(
-                "躯体运动刻板程度", 0.0, 1.0, base_profile['motor_stereotypy'],
-                help="0=无刻板，1=严重刻板"
-            )
-            
-            language_level = st.slider(
-                "语言缺陷程度", 0.0, 1.0, base_profile['language_deficit'],
-                help="0=语言正常，1=无语言"
-            )
-            
-            selfcare_level = st.slider(
-                "自理缺陷程度", 0.0, 1.0, base_profile['self_care_deficit'],
-                help="0=完全自理，1=完全依赖"
-            )
-            
-            behavior_freq = st.slider(
-                "异常行为出现频率", 0.1, 1.0, base_profile['behavior_frequency'],
-                help="行为出现的概率"
-            )
-            
-            # 根据配置估算ABC总分范围
-            estimated_min = int((sensory_level * 0.3 + social_level * 0.3 + 
-                               motor_level * 0.2 + language_level * 0.3 + 
-                               selfcare_level * 0.2) * 80)
-            estimated_max = int((sensory_level * 0.5 + social_level * 0.5 + 
-                               motor_level * 0.3 + language_level * 0.5 + 
-                               selfcare_level * 0.3) * 120)
-            
-            # 判断严重程度
-            if estimated_max >= 100:
-                severity_desc = "重度孤独症配置"
-            elif estimated_max >= 67:
-                severity_desc = "中度孤独症配置"
-            elif estimated_max >= 53:
-                severity_desc = "轻度孤独症配置"
-            elif estimated_max >= 40:
-                severity_desc = "边缘状态配置"
-            else:
-                severity_desc = "非孤独症配置"
-            
-            st.info(f"**预估ABC总分范围**: {estimated_min}-{estimated_max}")
-            st.info(f"**预估严重程度**: {severity_desc}")
-            
-            autism_profile = {
-                'sensory_abnormal': sensory_level,
-                'social_impairment': social_level,
-                'motor_stereotypy': motor_level,
-                'language_deficit': language_level,
-                'self_care_deficit': selfcare_level,
-                'behavior_frequency': behavior_freq,
-                'total_score_range': [estimated_min, estimated_max],
-                'description': severity_desc
+        template_base = st.selectbox("基于模板", ["自定义"] + list(UNIFIED_AUTISM_PROFILES.keys()))
+        
+        if template_base != "自定义":
+            base_profile = UNIFIED_AUTISM_PROFILES[template_base].copy()
+            st.info(f"基于: {base_profile['name']}")
+        else:
+            base_profile = {
+                'name': "自定义配置",
+                'social_characteristics': "社交能力受限，倾向独处",
+                'communication_characteristics': "语言发展迟缓，理解困难",
+                'behavioral_characteristics': "有重复刻板行为，兴趣狭窄",
+                'cognitive_characteristics': "认知发展不均衡",
+                'emotional_characteristics': "情绪调节困难",
+                'daily_living': "需要支持和引导",
+                'overall_functioning': "need_support",
+                'behavioral_examples': ["重复某些动作", "对变化敏感", "语言使用特殊"]
             }
-            
-        else:  # DSM-5配置
-            template_base = st.selectbox("基于标准分级", ["自定义"] + list(DSM5_SEVERITY_PROFILES.keys()))
-            
-            if template_base != "自定义":
-                base_profile = DSM5_SEVERITY_PROFILES[template_base]
-                st.info(f"基于: {base_profile['dsm5_severity']}")
-            else:
-                base_profile = {
-                    'social_communication': 3,
-                    'restricted_repetitive': 3,
-                    'sensory_processing': 3,
-                    'cognitive_function': 3,
-                    'adaptive_behavior': 3,
-                    'language_level': 3,
-                    'special_interests': "特定物体、活动或主题",
-                    'support_needs': "中等支持",
-                    'dsm5_severity': "自定义配置"
-                }
-            
-            st.write("**核心症状配置** (基于DSM-5诊断标准A、B条目)")
-            
-            social_comm = st.slider(
-                "A. 社交沟通缺陷程度", 1, 5, base_profile['social_communication'],
-                help="1=无明显缺陷，5=严重缺陷（社会情感互惠性、非语言沟通、关系发展困难）"
-            )
-            
-            repetitive_behavior = st.slider(
-                "B. 刻板重复行为程度", 1, 5, base_profile['restricted_repetitive'],
-                help="1=很少重复行为，5=严重重复行为（刻板动作、仪式、狭隘兴趣、感官异常）"
-            )
-            
-            st.write("**相关功能配置**")
-            
-            sensory_processing = st.slider(
-                "感官处理异常程度", 1, 5, base_profile['sensory_processing'],
-                help="1=正常处理，5=严重异常（过敏、寻求、逃避）"
-            )
-            
-            cognitive_function = st.slider(
-                "认知功能水平", 1, 5, base_profile['cognitive_function'],
-                help="1=重度障碍，5=正常范围"
-            )
-            
-            adaptive_behavior = st.slider(
-                "适应行为能力", 1, 5, base_profile['adaptive_behavior'],
-                help="1=严重困难，5=年龄适宜"
-            )
-            
-            language_level = st.slider(
-                "语言发展水平", 1, 5, base_profile['language_level'],
-                help="1=无功能性语言，5=年龄适宜"
-            )
-            
-            special_interests = st.text_input(
-                "特殊兴趣/限制性兴趣", 
-                base_profile['special_interests'],
-                help="描述具体的特殊兴趣或重复行为"
-            )
-            
-            # 根据配置自动推断支持需求
-            total_severity = social_comm + repetitive_behavior
-            if total_severity >= 8:
-                support_level = "需要非常大量支持"
-                dsm5_level = "需要非常大量支持"
-            elif total_severity >= 6:
-                support_level = "需要大量支持"
-                dsm5_level = "需要大量支持"
-            else:
-                support_level = "需要支持"
-                dsm5_level = "需要支持"
-            
-            st.info(f"**推断的DSM-5严重程度**: {dsm5_level}")
-            st.info(f"**推断的支持需求**: {support_level}")
-            
-            autism_profile = {
-                'social_communication': social_comm,
-                'restricted_repetitive': repetitive_behavior,
-                'sensory_processing': sensory_processing,
-                'cognitive_function': cognitive_function,
-                'adaptive_behavior': adaptive_behavior,
-                'language_level': language_level,
-                'special_interests': special_interests,
-                'support_needs': support_level,
-                'dsm5_severity': dsm5_level
-            }
+        
+        st.write("**自定义特征描述**")
+        
+        social_char = st.text_area(
+            "社交特征", 
+            base_profile['social_characteristics'],
+            height=60,
+            help="描述社交互动的特点"
+        )
+        
+        comm_char = st.text_area(
+            "沟通特征", 
+            base_profile['communication_characteristics'],
+            height=60,
+            help="描述语言和沟通能力"
+        )
+        
+        behavior_char = st.text_area(
+            "行为特征", 
+            base_profile['behavioral_characteristics'],
+            height=60,
+            help="描述重复刻板行为和兴趣"
+        )
+        
+        cognitive_char = st.text_area(
+            "认知特征", 
+            base_profile['cognitive_characteristics'],
+            height=60,
+            help="描述认知和学习能力"
+        )
+        
+        emotional_char = st.text_area(
+            "情绪特征", 
+            base_profile['emotional_characteristics'],
+            height=60,
+            help="描述情绪表达和调节"
+        )
+        
+        daily_living = st.text_area(
+            "日常生活", 
+            base_profile['daily_living'],
+            height=60,
+            help="描述自理和适应能力"
+        )
+        
+        # 功能水平选择
+        functioning_level = st.select_slider(
+            "整体功能水平",
+            options=['mainstream_with_support', 'need_support', 'need_substantial_support', 'need_very_substantial_support'],
+            value=base_profile.get('overall_functioning', 'need_support'),
+            format_func=lambda x: {
+                'mainstream_with_support': '主流+支持',
+                'need_support': '需要支持', 
+                'need_substantial_support': '需要大量支持',
+                'need_very_substantial_support': '需要非常大量支持'
+            }[x]
+        )
+        
+        # 行为示例
+        st.write("**典型行为示例** (每行一个)")
+        behavior_examples_text = st.text_area(
+            "行为示例",
+            '\n'.join(base_profile.get('behavioral_examples', [])),
+            height=100,
+            help="输入具体的行为表现示例"
+        )
+        
+        behavior_examples = [ex.strip() for ex in behavior_examples_text.split('\n') if ex.strip()]
+        
+        # 构建自定义配置
+        custom_profile = {
+            'name': f"自定义 - {template_base}" if template_base != "自定义" else "完全自定义",
+            'social_characteristics': social_char,
+            'communication_characteristics': comm_char,
+            'behavioral_characteristics': behavior_char,
+            'cognitive_characteristics': cognitive_char,
+            'emotional_characteristics': emotional_char,
+            'daily_living': daily_living,
+            'overall_functioning': functioning_level,
+            'behavioral_examples': behavior_examples
+        }
     
     # 执行个性化评估
-    st.subheader("🔬 执行个性化评估")
+    st.subheader("🔬 执行个性化双重评估")
     
     if st.button("🩺 开始个性化评估", type="primary", use_container_width=True):
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
-        standard_code = 'ABC' if assessment_standard == "ABC孤独症行为量表" else 'DSM5'
         
         experiment_config = {
             'template': template_base if template_base != "自定义" else "个性化配置",
             'scene': selected_scene,
             'activity': selected_activity,
             'trigger': selected_trigger,
-            'autism_profile': autism_profile,
-            'experiment_id': f"CUSTOM_{standard_code}_{timestamp}",
-            'assessment_standard': standard_code
+            'autism_profile': custom_profile,
+            'experiment_id': f"CUSTOM_{timestamp}"
         }
         
         with st.spinner("🤖 正在生成个性化评估..."):
@@ -670,164 +537,39 @@ def page_custom_assessment():
         if 'error' not in result:
             st.session_state.experiment_records.append(result)
             
-            st.success(f"✅ 个性化评估完成！ID: {result['experiment_id']}")
+            st.success(f"✅ 个性化双重评估完成！ID: {result['experiment_id']}")
             
             # 显示详细评估结果
-            st.subheader("📊 个性化评估结果")
+            st.subheader("📊 个性化评估详细结果")
             
-            if assessment_standard == "ABC孤独症行为量表":
-                # ABC个性化结果
-                total_score = result['abc_total_score']
-                severity = result['abc_severity']
-                
-                col_total = st.columns(1)[0]
-                with col_total:
-                    if total_score >= 67:
-                        st.error(f"### ABC总分: {total_score} - {severity}")
-                    elif total_score >= 53:
-                        st.warning(f"### ABC总分: {total_score} - {severity}")
-                    else:
-                        st.info(f"### ABC总分: {total_score} - {severity}")
-                
-                col_res1, col_res2, col_res3 = st.columns(3)
-                
-                with col_res1:
-                    st.write("**各领域得分**:")
-                    for domain, score in result['evaluation_scores'].items():
-                        max_score = ABC_EVALUATION_METRICS[domain]['max_score']
-                        st.metric(domain.replace("得分", ""), 
-                                 f"{score}/{max_score}", 
-                                 f"{score/max_score*100:.0f}%")
-                
-                with col_res2:
-                    st.write("**主要行为表现**:")
-                    if 'identified_behaviors' in result:
-                        all_behaviors = []
-                        for behaviors in result['identified_behaviors'].values():
-                            all_behaviors.extend(behaviors)
-                        
-                        for behavior in all_behaviors[:5]:  # 显示前5个
-                            st.write(f"• {behavior}")
-                
-                with col_res3:
-                    st.write("**领域分析**:")
-                    scores = result['evaluation_scores']
-                    
-                    # 找出最严重的领域
-                    max_percentage = 0
-                    max_domain = ""
-                    for domain, score in scores.items():
-                        max_score = ABC_EVALUATION_METRICS[domain]['max_score']
-                        percentage = score / max_score * 100
-                        if percentage > max_percentage:
-                            max_percentage = percentage
-                            max_domain = domain.replace("得分", "")
-                    
-                    st.write(f"**最严重领域**: {max_domain}")
-                    st.write(f"**严重程度**: {max_percentage:.0f}%")
-                
-                # ABC个性化建议
-                st.subheader("💡 个性化干预建议")
-                
-                suggestions = []
-                
-                # 基于各领域得分提供建议
-                for domain, score in result['evaluation_scores'].items():
-                    max_score = ABC_EVALUATION_METRICS[domain]['max_score']
-                    percentage = score / max_score * 100
-                    
-                    if percentage >= 60:
-                        if "感觉" in domain:
-                            suggestions.append("🌈 感觉统合训练：针对感觉过敏或迟钝进行专业干预")
-                        elif "交往" in domain:
-                            suggestions.append("👥 社交技能训练：结构化教学提升人际互动能力")
-                        elif "躯体" in domain:
-                            suggestions.append("🏃 行为干预：减少刻板动作，建立适应性行为")
-                        elif "语言" in domain:
-                            suggestions.append("🗣️ 语言治疗：提升沟通能力，必要时使用AAC")
-                        elif "自理" in domain:
-                            suggestions.append("🏠 生活技能训练：提高日常自理和独立能力")
-                
-                if total_score >= 67:
-                    suggestions.append("🏥 建议：进行全面的多学科评估和综合干预")
-                
-                if not suggestions:
-                    suggestions.append("✅ 各领域表现相对均衡，建议定期监测和预防性干预")
-                
-                for suggestion in suggestions:
-                    st.success(suggestion)
-                    
-            else:  # DSM-5个性化结果
-                col_res1, col_res2, col_res3 = st.columns(3)
-                
-                with col_res1:
-                    st.write("**核心症状评估**:")
-                    st.metric("社交沟通缺陷", f"{result['evaluation_scores']['社交互动质量']:.2f}/5")
-                    st.metric("刻板重复行为", f"{result['evaluation_scores']['刻板重复行为']:.2f}/5")
-                    
-                    core_avg = (result['evaluation_scores']['社交互动质量'] + 
-                               result['evaluation_scores']['刻板重复行为']) / 2
-                    st.metric("核心症状综合", f"{core_avg:.2f}/5")
-                
-                with col_res2:
-                    st.write("**相关功能评估**:")
-                    st.metric("沟通交流能力", f"{result['evaluation_scores']['沟通交流能力']:.2f}/5")
-                    st.metric("感官处理能力", f"{result['evaluation_scores']['感官处理能力']:.2f}/5")
-                    st.metric("情绪行为调节", f"{result['evaluation_scores']['情绪行为调节']:.2f}/5")
-                    st.metric("认知适应功能", f"{result['evaluation_scores']['认知适应功能']:.2f}/5")
-                
-                with col_res3:
-                    st.write("**临床观察**:")
-                    if 'clinical_observations' in result:
-                        for category, observations in result['clinical_observations'].items():
-                            if observations:
-                                st.write(f"**{category}**:")
-                                for obs in observations:
-                                    st.write(f"• {obs}")
-                
-                # DSM-5个性化建议
-                st.subheader("💡 个性化干预建议")
-                
-                suggestions = []
-                
-                if result['evaluation_scores']['社交互动质量'] >= 4:
-                    suggestions.append("🎯 优先目标：社交技能训练（眼神接触、轮流交替、情感分享）")
-                
-                if result['evaluation_scores']['沟通交流能力'] >= 4:
-                    suggestions.append("🗣️ 沟通干预：语言治疗、AAC辅助沟通、社交语用训练")
-                
-                if result['evaluation_scores']['刻板重复行为'] >= 4:
-                    suggestions.append("🔄 行为管理：功能性行为分析、替代行为训练、环境结构化")
-                
-                if result['evaluation_scores']['感官处理能力'] >= 4:
-                    suggestions.append("🌈 感官支持：感觉统合治疗、环境调适、自我调节策略")
-                
-                if result['evaluation_scores']['情绪行为调节'] >= 4:
-                    suggestions.append("😌 情绪支持：情绪识别训练、应对策略教学、行为干预")
-                
-                if not suggestions:
-                    suggestions.append("✅ 整体表现良好，建议维持现有支持并监测发展")
-                
-                for suggestion in suggestions:
-                    st.success(suggestion)
+            # 创建标签页显示两种评估
+            tab_abc, tab_dsm5, tab_compare = st.tabs(["ABC量表评估", "DSM-5标准评估", "对比分析"])
+            
+            with tab_abc:
+                display_abc_detailed_results(result['abc_evaluation'])
+            
+            with tab_dsm5:
+                display_dsm5_detailed_results(result['dsm5_evaluation'])
+            
+            with tab_compare:
+                display_assessment_comparison(result)
                 
         else:
             st.error(f"❌ 评估失败: {result['error']}")
     
     # 保存配置
     if st.button("💾 保存评估配置", use_container_width=True):
-        st.session_state.custom_autism_profile = autism_profile
+        st.session_state.custom_autism_profile = custom_profile
         st.session_state.custom_scene_config = {
             'scene': selected_scene,
             'activity': selected_activity,
-            'trigger': selected_trigger,
-            'assessment_standard': assessment_standard
+            'trigger': selected_trigger
         }
         st.success("✅ 个性化配置已保存！")
 
 
 def page_data_analysis():
-    """数据分析页面 - 支持DSM-5和ABC双标准"""
+    """数据分析页面 - 支持双重评估数据分析"""
     st.header("📈 临床数据分析")
     
     records = st.session_state.experiment_records
@@ -836,416 +578,66 @@ def page_data_analysis():
         st.warning("📊 暂无评估数据，请先进行临床评估")
         st.stop()
     
-    # 分析数据中的评估标准
-    abc_records = [r for r in records if r.get('assessment_standard') == 'ABC']
-    dsm5_records = [r for r in records if r.get('assessment_standard') == 'DSM5']
+    # 生成分析
+    analysis = generate_clinical_analysis(records)
     
-    # 显示数据概览
+    # 数据概览
     st.subheader("🏥 评估数据概览")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("评估总数", len(records))
     with col2:
-        st.metric("ABC评估", len(abc_records))
+        st.metric("评估情境数", len(set(r['scene'] for r in records)))
     with col3:
-        st.metric("DSM-5评估", len(dsm5_records))
+        # 计算平均ABC总分
+        avg_abc = np.mean([r['abc_evaluation']['total_score'] for r in records])
+        st.metric("平均ABC总分", f"{avg_abc:.1f}")
     with col4:
-        contexts = [r['scene'] for r in records]
-        unique_contexts = len(set(contexts))
-        st.metric("评估情境数", unique_contexts)
+        # 计算平均DSM-5核心症状
+        avg_dsm5 = np.mean([r['dsm5_evaluation']['core_symptom_average'] for r in records])
+        st.metric("平均DSM-5核心", f"{avg_dsm5:.2f}")
     
-    # 选择要分析的数据集
-    analysis_option = st.radio(
-        "选择分析数据集",
-        ["全部数据", "仅ABC评估", "仅DSM-5评估"],
-        help="选择要分析的评估数据"
-    )
+    # 评估一致性分析
+    st.subheader("🔄 ABC与DSM-5评估一致性分析")
     
-    if analysis_option == "仅ABC评估" and not abc_records:
-        st.warning("暂无ABC评估数据")
-        st.stop()
-    elif analysis_option == "仅DSM-5评估" and not dsm5_records:
-        st.warning("暂无DSM-5评估数据")
-        st.stop()
+    consistency_results = get_behavior_summary_stats(records)
     
-    # 确定分析数据集
-    if analysis_option == "仅ABC评估":
-        analysis_records = abc_records
-    elif analysis_option == "仅DSM-5评估":
-        analysis_records = dsm5_records
-    else:
-        analysis_records = records
+    col_cons1, col_cons2, col_cons3 = st.columns(3)
+    with col_cons1:
+        st.metric("Pearson相关系数", f"{consistency_results['correlation']:.3f}")
+        st.write(f"p值: {consistency_results['p_value']:.4f}")
+    with col_cons2:
+        st.metric("一致性比例", f"{consistency_results['agreement_rate']:.1f}%")
+        st.write("(严重程度判断一致)")
+    with col_cons3:
+        st.metric("评分差异", f"{consistency_results['mean_difference']:.2f}")
+        st.write("(标准化后)")
     
-    # 生成分析
-    analysis = generate_clinical_analysis(analysis_records)
+    # 散点图显示相关性
+    fig_scatter = create_correlation_scatter(records)
+    st.plotly_chart(fig_scatter, use_container_width=True)
     
-    # ABC特定分析
-    if analysis_option != "仅DSM-5评估" and abc_records:
-        st.subheader("📊 ABC量表分析")
-        
-        # ABC总分分布图
-        if abc_records:
-            total_scores = [r['abc_total_score'] for r in abc_records]
-            
-            fig_hist = px.histogram(
-                x=total_scores,
-                nbins=20,
-                title="ABC总分分布直方图",
-                labels={'x': 'ABC总分', 'y': '频次'}
-            )
-            
-            # 添加诊断阈值线
-            fig_hist.add_vline(x=67, line_dash="dash", line_color="red", 
-                              annotation_text="孤独症阈值(67分)")
-            fig_hist.add_vline(x=53, line_dash="dash", line_color="orange", 
-                              annotation_text="轻度阈值(53分)")
-            
-            st.plotly_chart(fig_hist, use_container_width=True)
-            
-            # 各领域得分雷达图
-            domain_percentages = {}
-            for domain in ABC_EVALUATION_METRICS.keys():
-                scores = [r['evaluation_scores'][domain] for r in abc_records]
-                max_score = ABC_EVALUATION_METRICS[domain]['max_score']
-                avg_percentage = np.mean(scores) / max_score * 100
-                domain_percentages[domain.replace("得分", "")] = avg_percentage
-            
-            fig_radar = go.Figure()
-            fig_radar.add_trace(go.Scatterpolar(
-                r=list(domain_percentages.values()),
-                theta=list(domain_percentages.keys()),
-                fill='toself',
-                name='平均得分百分比',
-                line_color='rgb(255, 100, 100)'
-            ))
-            fig_radar.update_layout(
-                polar=dict(
-                    radialaxis=dict(
-                        visible=True,
-                        range=[0, 100],
-                        ticksuffix='%'
-                    )),
-                showlegend=True,
-                title="ABC各领域平均得分百分比",
-                height=500
-            )
-            st.plotly_chart(fig_radar, use_container_width=True)
+    # 分别显示两种评估的结果
+    tab1, tab2, tab3 = st.tabs(["ABC量表分析", "DSM-5标准分析", "综合对比"])
     
-    # DSM-5特定分析
-    if analysis_option != "仅ABC评估" and dsm5_records:
-        st.subheader("🧠 DSM-5核心症状分析")
-        
-        # 核心症状雷达图
-        avg_scores = {}
-        for metric in DSM5_EVALUATION_METRICS.keys():
-            scores = [r['evaluation_scores'][metric] for r in dsm5_records]
-            avg_scores[metric] = np.mean(scores)
-        
-        fig_radar = go.Figure()
-        fig_radar.add_trace(go.Scatterpolar(
-            r=list(avg_scores.values()),
-            theta=list(avg_scores.keys()),
-            fill='toself',
-            name='平均缺陷程度',
-            line_color='rgb(100, 100, 255)'
-        ))
-        fig_radar.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[1, 5],
-                    tickvals=[1, 2, 3, 4, 5],
-                    ticktext=['正常', '轻度', '中度', '明显', '严重']
-                )),
-            showlegend=True,
-            title="DSM-5核心症状及相关功能评估雷达图",
-            height=500
-        )
-        st.plotly_chart(fig_radar, use_container_width=True)
+    with tab1:
+        display_abc_analysis(records, analysis)
     
-    # 严重程度分布饼图
-    st.subheader("📊 严重程度分布")
+    with tab2:
+        display_dsm5_analysis(records, analysis)
     
-    if analysis_option == "仅ABC评估" or (analysis_option == "全部数据" and abc_records):
-        # ABC严重程度分布
-        severity_counts = {}
-        for record in abc_records:
-            severity = record['abc_severity']
-            if severity not in severity_counts:
-                severity_counts[severity] = 0
-            severity_counts[severity] += 1
-        
-        fig_pie = px.pie(
-            values=list(severity_counts.values()),
-            names=list(severity_counts.keys()),
-            title="ABC严重程度分布"
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
-    
-    if analysis_option == "仅DSM-5评估" or (analysis_option == "全部数据" and dsm5_records):
-        # DSM-5严重程度分布
-        severity_counts = {}
-        for record in dsm5_records:
-            severity = record.get('template', '自定义')
-            if severity not in severity_counts:
-                severity_counts[severity] = 0
-            severity_counts[severity] += 1
-        
-        fig_pie = px.pie(
-            values=list(severity_counts.values()),
-            names=list(severity_counts.keys()),
-            title="DSM-5严重程度分布"
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
-    
-    # 高频行为分析（仅ABC）
-    if analysis_option != "仅DSM-5评估" and abc_records:
-        st.subheader("🔍 高频行为表现")
-        
-        if '高频行为表现' in analysis:
-            behavior_df = pd.DataFrame([
-                {'行为': behavior, '出现情况': frequency}
-                for behavior, frequency in list(analysis['高频行为表现'].items())[:10]
-            ])
-            st.dataframe(behavior_df, use_container_width=True)
-        
-        # 高级行为特征分析
-        with st.expander("📋 行为特征筛选", expanded=False):
-            # 获取所有出现过的行为
-            all_behaviors_set = set()
-            for record in abc_records:
-                if 'identified_behaviors' in record:
-                    for behaviors in record['identified_behaviors'].values():
-                        all_behaviors_set.update(behaviors)
-            
-            all_behaviors_list = sorted(list(all_behaviors_set))
-            
-            col_filter1, col_filter2 = st.columns([3, 1])
-            
-            with col_filter1:
-                selected_behaviors = st.multiselect(
-                    "选择目标行为（可多选）",
-                    all_behaviors_list,
-                    help="选择您想要筛选的特定行为"
-                )
-            
-            with col_filter2:
-                filter_logic = st.radio(
-                    "筛选逻辑",
-                    ["包含任一行为", "包含所有行为"],
-                    help="选择行为筛选的逻辑关系"
-                )
-            
-            if st.button("🔍 筛选样本", use_container_width=True):
-                if selected_behaviors:
-                    logic = 'OR' if filter_logic == "包含任一行为" else 'AND'
-                    matched_samples, behavior_stats = extract_behavior_specific_samples(
-                        abc_records, selected_behaviors, logic
-                    )
-                    
-                    st.success(f"找到 {len(matched_samples)} 个符合条件的样本")
-                    
-                    # 显示筛选结果
-                    if matched_samples:
-                        # 行为统计
-                        st.write("**行为出现统计：**")
-                        stats_df = pd.DataFrame([
-                            {'行为': behavior, '出现次数': count, 
-                             '出现率': f"{count/len(abc_records)*100:.1f}%"}
-                            for behavior, count in behavior_stats.items()
-                        ])
-                        st.dataframe(stats_df, use_container_width=True)
-                        
-                        # 样本列表
-                        st.write("**符合条件的样本：**")
-                        sample_summary = []
-                        for item in matched_samples[:20]:  # 最多显示20个
-                            record = item['record']
-                            sample_summary.append({
-                                '评估ID': record['experiment_id'][:30] + '...' if len(record['experiment_id']) > 30 else record['experiment_id'],
-                                '严重程度': record['abc_severity'],
-                                'ABC总分': record['abc_total_score'],
-                                '匹配行为数': item['match_count'],
-                                '匹配的行为': ', '.join(item['matched_behaviors'][:3])
-                            })
-                        
-                        st.dataframe(pd.DataFrame(sample_summary), use_container_width=True)
-                        
-                        if len(matched_samples) > 20:
-                            st.info(f"显示前20个结果，共{len(matched_samples)}个")
-                else:
-                    st.warning("请先选择要筛选的行为")
-    
-    # 情境效应分析
-    st.subheader("🎭 评估情境效应分析")
-    
-    context_data = {}
-    for record in analysis_records:
-        context = record['scene']
-        if context not in context_data:
-            context_data[context] = []
-        
-        # 根据评估标准计算综合表现得分
-        if record.get('assessment_standard') == 'ABC':
-            # ABC使用总分（分数越高症状越严重）
-            comprehensive_score = record['abc_total_score']
-        else:
-            # DSM-5使用核心症状平均分（分数越高症状越严重）
-            comprehensive_score = (record['evaluation_scores']['社交互动质量'] + 
-                                 record['evaluation_scores']['沟通交流能力'] + 
-                                 record['evaluation_scores']['刻板重复行为']) / 3 * 20  # 转换到类似ABC的尺度
-        
-        context_data[context].append(comprehensive_score)
-    
-    if len(context_data) > 1:
-        context_comparison = []
-        for context, scores in context_data.items():
-            avg_score = np.mean(scores)
-            context_comparison.append({
-                '评估情境': context,
-                '样本数': len(scores),
-                '平均表现': avg_score,
-                '标准差': np.std(scores),
-                '表现水平': '较好' if avg_score < 50 else '中等' if avg_score < 70 else '困难'
-            })
-        
-        df_context = pd.DataFrame(context_comparison)
-        
-        fig_context = px.bar(
-            df_context,
-            x='评估情境',
-            y='平均表现',
-            color='表现水平',
-            title="不同评估情境下的表现对比",
-            labels={'平均表现': '症状严重程度'},
-            height=400
-        )
-        st.plotly_chart(fig_context, use_container_width=True)
-        
-        # 显示情境分析表格
-        st.dataframe(df_context.drop('表现水平', axis=1), use_container_width=True)
-    
-    # 临床发现和建议
-    st.subheader("🔍 临床发现与干预建议")
-    
-    if analysis.get('临床发现与建议'):
-        col_finding1, col_finding2 = st.columns(2)
-        
-        with col_finding1:
-            st.write("### 📋 主要临床发现")
-            for i, finding in enumerate(analysis['临床发现与建议'], 1):
-                if '严重' in finding or '明确' in finding:
-                    st.error(f"{i}. {finding}")
-                elif '轻度' in finding or '边缘' in finding:
-                    st.warning(f"{i}. {finding}")
-                else:
-                    st.info(f"{i}. {finding}")
-        
-        with col_finding2:
-            st.write("### 💡 循证干预建议")
-            st.write("**基于评估结果的干预建议**:")
-            
-            if analysis_option != "仅DSM-5评估" and abc_records:
-                # ABC干预建议
-                avg_total = np.mean([r['abc_total_score'] for r in abc_records])
-                
-                if avg_total >= 67:
-                    st.write("• 🎯 **综合干预方案**")
-                    st.write("  - 应用行为分析(ABA)")
-                    st.write("  - 结构化教学(TEACCH)")
-                    st.write("  - 感觉统合训练")
-                    st.write("  - 语言和沟通治疗")
-                elif avg_total >= 53:
-                    st.write("• 🗣️ **早期干预**")
-                    st.write("  - 社交技能训练")
-                    st.write("  - 图片交换沟通系统(PECS)")
-                    st.write("  - 行为支持计划")
-            
-            if analysis_option != "仅ABC评估" and dsm5_records:
-                # DSM-5干预建议
-                social_avg = np.mean([r['evaluation_scores']['社交互动质量'] for r in dsm5_records])
-                comm_avg = np.mean([r['evaluation_scores']['沟通交流能力'] for r in dsm5_records])
-                repetitive_avg = np.mean([r['evaluation_scores']['刻板重复行为'] for r in dsm5_records])
-                
-                if social_avg >= 4.0:
-                    st.write("• 🎯 **社交技能训练** (SST)")
-                    st.write("  - 结构化社交技能教学")
-                    st.write("  - 同伴中介干预")
-                    st.write("  - 视频建模技术")
-                
-                if comm_avg >= 4.0:
-                    st.write("• 🗣️ **沟通干预**")
-                    st.write("  - 功能性沟通训练")
-                    st.write("  - AAC辅助沟通")
-                    st.write("  - 语言行为干预")
-                
-                if repetitive_avg >= 4.0:
-                    st.write("• 🔄 **行为干预**")
-                    st.write("  - 功能性行为评估")
-                    st.write("  - 正向行为支持")
-                    st.write("  - 环境结构化")
+    with tab3:
+        display_comprehensive_comparison(records, analysis)
     
     # 统计显著性检验
-    if len(analysis_records) > 10:
+    if len(records) > 10:
         st.subheader("📐 统计学分析")
-        
-        try:
-            # 根据评估标准进行不同的统计分析
-            if analysis_option == "仅ABC评估":
-                # ABC评分的组间比较
-                severity_groups = {}
-                for record in abc_records:
-                    severity = record['abc_severity']
-                    if severity not in severity_groups:
-                        severity_groups[severity] = []
-                    severity_groups[severity].append(record['abc_total_score'])
-                
-                if len(severity_groups) >= 2:
-                    group_values = list(severity_groups.values())
-                    f_stat, p_value = stats.f_oneway(*group_values)
-                    
-                    st.write(f"**ABC总分的单因素方差分析**:")
-                    st.write(f"- F统计量: {f_stat:.3f}")
-                    st.write(f"- p值: {p_value:.3f}")
-                    
-                    if p_value < 0.05:
-                        st.success("✅ 不同严重程度组间ABC总分差异具有统计学意义 (p < 0.05)")
-                    else:
-                        st.info("ℹ️ 不同严重程度组间ABC总分差异无统计学意义 (p ≥ 0.05)")
-            
-            elif analysis_option == "仅DSM-5评估":
-                # DSM-5核心症状的组间比较
-                severity_groups = {}
-                for record in dsm5_records:
-                    severity = record.get('template', '自定义')
-                    if severity not in severity_groups:
-                        severity_groups[severity] = []
-                    
-                    core_score = (record['evaluation_scores']['社交互动质量'] + 
-                                 record['evaluation_scores']['沟通交流能力'] + 
-                                 record['evaluation_scores']['刻板重复行为']) / 3
-                    severity_groups[severity].append(core_score)
-                
-                if len(severity_groups) >= 2:
-                    group_values = list(severity_groups.values())
-                    f_stat, p_value = stats.f_oneway(*group_values)
-                    
-                    st.write(f"**DSM-5核心症状的单因素方差分析**:")
-                    st.write(f"- F统计量: {f_stat:.3f}")
-                    st.write(f"- p值: {p_value:.3f}")
-                    
-                    if p_value < 0.05:
-                        st.success("✅ 不同严重程度组间核心症状差异具有统计学意义 (p < 0.05)")
-                    else:
-                        st.info("ℹ️ 不同严重程度组间核心症状差异无统计学意义 (p ≥ 0.05)")
-                        
-        except ImportError:
-            st.info("💡 安装scipy模块可启用统计学分析功能")
+        display_statistical_analysis(records)
 
 
 def page_records_management():
-    """评估记录管理页面 - 支持DSM-5和ABC双标准"""
+    """评估记录管理页面 - 支持双重评估数据"""
     st.header("📚 评估记录管理")
     
     records = st.session_state.experiment_records
@@ -1254,108 +646,69 @@ def page_records_management():
         st.info("📝 暂无评估记录")
         st.stop()
     
-    # 统计各标准的记录数
-    abc_count = len([r for r in records if r.get('assessment_standard') == 'ABC'])
-    dsm5_count = len([r for r in records if r.get('assessment_standard') == 'DSM5'])
-    
-    st.subheader(f"📊 共有 {len(records)} 条临床评估记录")
-    st.write(f"ABC评估: {abc_count} 条 | DSM-5评估: {dsm5_count} 条")
+    st.subheader(f"📊 共有 {len(records)} 条评估记录")
     
     # 高级筛选选项
-    col_filter1, col_filter2, col_filter3, col_filter4, col_filter5 = st.columns(5)
+    col_filter1, col_filter2, col_filter3, col_filter4 = st.columns(4)
     
     with col_filter1:
-        standard_filter = st.selectbox(
-            "按评估标准筛选",
-            ["全部", "ABC量表", "DSM-5标准"]
+        severity_filter = st.selectbox(
+            "按严重程度筛选",
+            ["全部"] + list(set([r.get('template', '自定义') for r in records]))
         )
     
     with col_filter2:
-        severity_options = ["全部"]
-        if standard_filter == "ABC量表":
-            severity_options.extend(["重度孤独症", "中度孤独症", "轻度孤独症", "边缘状态", "非孤独症"])
-        elif standard_filter == "DSM-5标准":
-            severity_options.extend(list(DSM5_SEVERITY_PROFILES.keys()))
-        else:
-            severity_options.extend(list(set([r.get('abc_severity', r.get('template', '自定义')) for r in records])))
-        
-        severity_filter = st.selectbox("按严重程度筛选", severity_options)
-    
-    with col_filter3:
         context_filter = st.selectbox(
             "按评估情境筛选",
             ["全部"] + list(set([r['scene'] for r in records]))
         )
     
-    with col_filter4:
+    with col_filter3:
+        # 基于ABC或DSM-5的筛选
         score_filter = st.selectbox(
             "按评分筛选",
-            ["全部", "高分", "中分", "低分"]
+            ["全部", "ABC高分(≥67)", "ABC低分(<53)", "DSM5重度(≥3.5)", "DSM5轻度(<2.5)"]
         )
     
-    with col_filter5:
+    with col_filter4:
         sort_by = st.selectbox(
             "排序方式", 
-            ["时间倒序", "时间正序", "严重程度", "评估标准"]
+            ["时间倒序", "时间正序", "ABC总分", "DSM-5核心症状", "一致性"]
         )
     
     # 应用筛选
-    filtered_records = records
-    
-    if standard_filter == "ABC量表":
-        filtered_records = [r for r in filtered_records if r.get('assessment_standard') == 'ABC']
-    elif standard_filter == "DSM-5标准":
-        filtered_records = [r for r in filtered_records if r.get('assessment_standard') == 'DSM5']
+    filtered_records = records.copy()
     
     if severity_filter != "全部":
-        if standard_filter == "ABC量表":
-            filtered_records = [r for r in filtered_records if r.get('abc_severity') == severity_filter]
-        else:
-            filtered_records = [r for r in filtered_records if r.get('template', '自定义') == severity_filter]
+        filtered_records = [r for r in filtered_records if r.get('template', '自定义') == severity_filter]
     
     if context_filter != "全部":
         filtered_records = [r for r in filtered_records if r['scene'] == context_filter]
     
     if score_filter != "全部":
-        if score_filter == "高分":
-            if standard_filter == "ABC量表":
-                filtered_records = [r for r in filtered_records if r.get('abc_total_score', 0) >= 67]
-            else:
-                filtered_records = [r for r in filtered_records if 
-                                  (r['evaluation_scores']['社交互动质量'] + 
-                                   r['evaluation_scores']['沟通交流能力'] + 
-                                   r['evaluation_scores']['刻板重复行为']) / 3 >= 4.0]
-        elif score_filter == "中分":
-            if standard_filter == "ABC量表":
-                filtered_records = [r for r in filtered_records if 40 <= r.get('abc_total_score', 0) < 67]
-            else:
-                filtered_records = [r for r in filtered_records if 
-                                  2.5 <= (r['evaluation_scores']['社交互动质量'] + 
-                                          r['evaluation_scores']['沟通交流能力'] + 
-                                          r['evaluation_scores']['刻板重复行为']) / 3 < 4.0]
-        else:  # 低分
-            if standard_filter == "ABC量表":
-                filtered_records = [r for r in filtered_records if r.get('abc_total_score', 0) < 40]
-            else:
-                filtered_records = [r for r in filtered_records if 
-                                  (r['evaluation_scores']['社交互动质量'] + 
-                                   r['evaluation_scores']['沟通交流能力'] + 
-                                   r['evaluation_scores']['刻板重复行为']) / 3 < 2.5]
+        if score_filter == "ABC高分(≥67)":
+            filtered_records = [r for r in filtered_records if r['abc_evaluation']['total_score'] >= 67]
+        elif score_filter == "ABC低分(<53)":
+            filtered_records = [r for r in filtered_records if r['abc_evaluation']['total_score'] < 53]
+        elif score_filter == "DSM5重度(≥3.5)":
+            filtered_records = [r for r in filtered_records if r['dsm5_evaluation']['core_symptom_average'] >= 3.5]
+        elif score_filter == "DSM5轻度(<2.5)":
+            filtered_records = [r for r in filtered_records if r['dsm5_evaluation']['core_symptom_average'] < 2.5]
     
     # 应用排序
     if sort_by == "时间正序":
         filtered_records = sorted(filtered_records, key=lambda x: x['timestamp'])
-    elif sort_by == "严重程度":
-        def get_severity_score(record):
-            if record.get('assessment_standard') == 'ABC':
-                return record.get('abc_total_score', 0)
-            else:
-                return (record['evaluation_scores']['社交互动质量'] + 
-                       record['evaluation_scores']['沟通交流能力'] + 
-                       record['evaluation_scores']['刻板重复行为']) / 3
-        filtered_records = sorted(filtered_records, key=get_severity_score, reverse=True)
-    elif sort_by == "评估标准":
-        filtered_records = sorted(filtered_records, key=lambda x: x.get('assessment_standard', 'ABC'))
+    elif sort_by == "ABC总分":
+        filtered_records = sorted(filtered_records, key=lambda x: x['abc_evaluation']['total_score'], reverse=True)
+    elif sort_by == "DSM-5核心症状":
+        filtered_records = sorted(filtered_records, key=lambda x: x['dsm5_evaluation']['core_symptom_average'], reverse=True)
+    elif sort_by == "一致性":
+        # 按ABC和DSM-5评估的一致性排序
+        def get_consistency(record):
+            abc_severe = record['abc_evaluation']['total_score'] >= 67
+            dsm5_severe = record['dsm5_evaluation']['core_symptom_average'] >= 3.5
+            return 1 if abc_severe == dsm5_severe else 0
+        filtered_records = sorted(filtered_records, key=get_consistency, reverse=True)
     else:  # 时间倒序
         filtered_records = sorted(filtered_records, key=lambda x: x['timestamp'], reverse=True)
     
@@ -1364,170 +717,549 @@ def page_records_management():
     # 记录列表显示
     for i, record in enumerate(filtered_records):
         
-        # 获取评估标准
-        assessment_standard = record.get('assessment_standard', 'ABC')
-        standard_label = "ABC" if assessment_standard == 'ABC' else "DSM-5"
+        # 获取双重评估结果
+        abc_total = record['abc_evaluation']['total_score']
+        abc_severity = record['abc_evaluation']['severity']
+        dsm5_core = record['dsm5_evaluation']['core_symptom_average']
         
-        # 获取严重程度标签
-        if assessment_standard == 'ABC':
-            severity = record.get('abc_severity', '未知')
-            total_score = record.get('abc_total_score', 0)
-            
-            if total_score >= 101:
-                severity_label = "🔴 重度"
-            elif total_score >= 67:
-                severity_label = "🟠 中度"
-            elif total_score >= 53:
-                severity_label = "🟡 轻度"
-            elif total_score >= 40:
-                severity_label = "🔵 边缘"
-            else:
-                severity_label = "🟢 非孤独症"
-            
-            display_info = f"[{standard_label}] ABC:{total_score} - {severity_label}"
-        else:
-            # DSM-5评估
-            core_severity = (record['evaluation_scores']['社交互动质量'] + 
-                            record['evaluation_scores']['沟通交流能力'] + 
-                            record['evaluation_scores']['刻板重复行为']) / 3
-            
-            if core_severity >= 4.0:
-                severity_label = "🔴 极重度"
-            elif core_severity >= 3.0:
-                severity_label = "🟠 重度"
-            elif core_severity >= 2.0:
-                severity_label = "🟡 中度"
-            else:
-                severity_label = "🟢 轻度"
-            
-            display_info = f"[{standard_label}] 核心:{core_severity:.2f} - {severity_label}"
+        # 判断一致性
+        abc_severe = abc_total >= 67
+        dsm5_severe = dsm5_core >= 3.5
+        consistency = "✅" if abc_severe == dsm5_severe else "⚠️"
         
-        template_info = f" - {record.get('template', '自定义')}" if record.get('template') else ""
+        # 显示标题
+        display_title = (f"{consistency} {record['experiment_id']} - "
+                        f"ABC:{abc_total} | DSM5:{dsm5_core:.2f} - "
+                        f"{record['timestamp'].strftime('%m-%d %H:%M')}")
         
-        with st.expander(f"🩺 {record['experiment_id']}{template_info} - {display_info} ({record['timestamp'].strftime('%Y-%m-%d %H:%M')})"):
+        with st.expander(display_title):
             
+            # 基本信息
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 st.write("**📋 评估基本信息:**")
-                st.write(f"• 评估标准: {standard_label}")
                 st.write(f"• 配置类型: {record.get('template', '自定义')}")
                 st.write(f"• 评估情境: {record['scene']}")
                 st.write(f"• 观察活动: {record.get('activity', '未指定')}")
                 st.write(f"• 触发因素: {record.get('trigger', '未指定')}")
                 st.write(f"• 评估时间: {record['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
-                
-                if assessment_standard == 'ABC':
-                    st.write("**🎯 ABC评估结果:**")
-                    st.write(f"• ABC总分: {record.get('abc_total_score', 'N/A')}")
-                    st.write(f"• 严重程度: {record.get('abc_severity', 'N/A')}")
-                else:
-                    if record.get('autism_profile'):
-                        st.write("**👤 DSM-5特征配置:**")
-                        profile = record['autism_profile']
-                        st.write(f"• DSM-5严重程度: {profile.get('dsm5_severity', 'N/A')}")
-                        st.write(f"• 社交沟通缺陷: {profile.get('social_communication', 'N/A')}/5")
-                        st.write(f"• 刻板重复行为: {profile.get('restricted_repetitive', 'N/A')}/5")
             
             with col2:
-                st.write("**📊 评估得分:**")
-                
-                scores = record['evaluation_scores']
-                
-                if assessment_standard == 'ABC':
-                    # ABC各领域得分
-                    for domain, score in scores.items():
-                        max_score = ABC_EVALUATION_METRICS[domain]['max_score']
-                        percentage = score / max_score * 100
-                        
-                        if percentage >= 60:
-                            st.error(f"• {domain}: {score}/{max_score} ({percentage:.0f}%)")
-                        elif percentage >= 40:
-                            st.warning(f"• {domain}: {score}/{max_score} ({percentage:.0f}%)")
-                        else:
-                            st.success(f"• {domain}: {score}/{max_score} ({percentage:.0f}%)")
-                else:
-                    # DSM-5评分
-                    st.write("*DSM-5核心症状:*")
-                    for metric in ['社交互动质量', '沟通交流能力', '刻板重复行为']:
-                        score = scores[metric]
-                        if score >= 4.0:
-                            st.error(f"• {metric}: {score}/5 (严重)")
-                        elif score >= 3.0:
-                            st.warning(f"• {metric}: {score}/5 (中度)")
-                        else:
-                            st.success(f"• {metric}: {score}/5 (轻度)")
-                    
-                    st.write("*相关功能:*")
-                    for metric in ['感官处理能力', '情绪行为调节', '认知适应功能']:
-                        st.write(f"• {metric}: {scores[metric]}/5")
+                st.write("**📊 ABC量表评估:**")
+                st.write(f"• 总分: {abc_total}")
+                st.write(f"• 严重程度: {abc_severity}")
+                st.write("• 各领域得分:")
+                for domain, score in record['abc_evaluation']['domain_scores'].items():
+                    st.write(f"  - {domain}: {score}")
             
             with col3:
-                st.write("**🔍 临床观察:**")
-                
-                if assessment_standard == 'ABC' and 'identified_behaviors' in record:
-                    all_behaviors = []
-                    for domain, behaviors in record['identified_behaviors'].items():
-                        if behaviors:
-                            st.write(f"*{domain}:*")
-                            for behavior in behaviors[:3]:  # 每个领域显示前3个
-                                st.write(f"• {behavior}")
-                            if len(behaviors) > 3:
-                                st.write(f"  ...还有{len(behaviors)-3}个")
-                elif 'clinical_observations' in record and record['clinical_observations']:
-                    for category, observations in record['clinical_observations'].items():
-                        if observations:
-                            st.write(f"*{category}:*")
-                            for obs in observations:
-                                st.write(f"• {obs}")
-                else:
-                    st.write("暂无特殊观察记录")
-                
-                if record.get('notes'):
-                    st.write(f"**📝 备注:** {record['notes']}")
+                st.write("**🧠 DSM-5标准评估:**")
+                st.write(f"• 核心症状均值: {dsm5_core:.2f}")
+                st.write("• 各维度评分:")
+                for metric, score in record['dsm5_evaluation']['scores'].items():
+                    if metric in ['社交互动质量', '沟通交流能力', '刻板重复行为']:
+                        st.write(f"  - {metric}: {score:.2f} ⭐")
+                    else:
+                        st.write(f"  - {metric}: {score:.2f}")
             
             # 对话记录
             st.write("**💬 行为观察对话记录:**")
-            dialogue_lines = record['dialogue'].split('\n')
-            dialogue_text = '\n'.join([line for line in dialogue_lines if line.strip() and ':' in line])
+            dialogue_text = record['dialogue']
             
-            unique_key = f"{assessment_standard}_dialogue_{i}_{record['experiment_id']}_{record['timestamp'].strftime('%Y%m%d_%H%M%S')}"
+            unique_key = f"dialogue_{i}_{record['experiment_id']}_{record['timestamp'].strftime('%Y%m%d_%H%M%S')}"
             st.text_area("", dialogue_text, height=200, key=unique_key)
             
             # 快速操作按钮
             col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)  
             
             with col_btn1:
-                if st.button(f"📋 生成个案报告", key=f"report_{record['experiment_id']}"):
-                    st.info("个案报告生成功能开发中...")
+                if st.button(f"📋 生成报告", key=f"report_{record['experiment_id']}"):
+                    st.info("双重评估报告生成功能开发中...")
             
             with col_btn2:
-                if st.button(f"📈 趋势分析", key=f"trend_{record['experiment_id']}"):
-                    st.info("个体趋势分析功能开发中...")
+                if st.button(f"📈 详细分析", key=f"analysis_{record['experiment_id']}"):
+                    display_single_record_analysis(record)
             
             with col_btn3:
                 if st.button(f"🔄 重复评估", key=f"repeat_{record['experiment_id']}"):
                     st.info("重复评估功能开发中...")
-
+            
             with col_btn4:
                 if st.button(f"🔍 查找相似", key=f"similar_{record['experiment_id']}"):
-                    if assessment_standard == 'ABC':
-                        with st.spinner("正在查找相似样本..."):
-                            similar_samples = find_similar_samples(
-                                record, 
-                                [r for r in st.session_state.experiment_records if r.get('assessment_standard') == 'ABC'],
-                                threshold=0.7,
-                                max_results=5
-                            )
-                        
-                        if similar_samples:
-                            st.write("**相似样本：**")
-                            for idx, item in enumerate(similar_samples, 1):
-                                similar_record = item['record']
-                                st.write(f"{idx}. {similar_record['experiment_id']} - "
-                                       f"相似度: {item['similarity']:.2%} - "
-                                       f"ABC总分: {similar_record['abc_total_score']}")
-                        else:
-                            st.info("未找到相似度超过70%的样本")
+                    with st.spinner("正在查找相似样本..."):
+                        similar_samples = find_similar_samples(
+                            record, 
+                            st.session_state.experiment_records,
+                            threshold=0.7,
+                            max_results=5
+                        )
+                    
+                    if similar_samples:
+                        st.write("**相似样本：**")
+                        for idx, item in enumerate(similar_samples, 1):
+                            similar_record = item['record']
+                            st.write(f"{idx}. {similar_record['experiment_id']} - "
+                                   f"相似度: {item['similarity']:.2%}")
                     else:
-                        st.info("相似度分析功能目前仅支持ABC评估")
+                        st.info("未找到相似度超过70%的样本")
+
+
+# ==================== 辅助函数 ====================
+
+def analyze_batch_consistency(results):
+    """分析批量结果的评估一致性"""
+    consistent_count = 0
+    abc_scores = []
+    dsm5_scores = []
+    
+    for record in results:
+        abc_severe = record['abc_evaluation']['total_score'] >= 67
+        dsm5_severe = record['dsm5_evaluation']['core_symptom_average'] >= 3.5
+        
+        if abc_severe == dsm5_severe:
+            consistent_count += 1
+        
+        # 标准化分数以便计算相关性
+        abc_normalized = record['abc_evaluation']['total_score'] / 158  # ABC最高分158
+        dsm5_normalized = record['dsm5_evaluation']['core_symptom_average'] / 5  # DSM-5最高5分
+        
+        abc_scores.append(abc_normalized)
+        dsm5_scores.append(dsm5_normalized)
+    
+    # 计算相关系数
+    if len(results) > 1:
+        correlation = np.corrcoef(abc_scores, dsm5_scores)[0, 1]
+    else:
+        correlation = 0
+    
+    return {
+        'consistency_rate': (consistent_count / len(results)) * 100 if results else 0,
+        'correlation': correlation,
+        'abc_scores': abc_scores,
+        'dsm5_scores': dsm5_scores
+    }
+
+
+def create_severity_comparison_df(results):
+    """创建严重程度对比数据框"""
+    comparison_data = []
+    
+    # 按严重程度分组
+    severity_groups = {}
+    for record in results:
+        severity = record.get('template', '自定义')
+        if severity not in severity_groups:
+            severity_groups[severity] = {
+                'abc_scores': [],
+                'dsm5_scores': []
+            }
+        
+        severity_groups[severity]['abc_scores'].append(record['abc_evaluation']['total_score'])
+        severity_groups[severity]['dsm5_scores'].append(record['dsm5_evaluation']['core_symptom_average'])
+    
+    # 计算每组的统计数据
+    for severity, data in severity_groups.items():
+        comparison_data.append({
+            '严重程度': severity,
+            '样本数': len(data['abc_scores']),
+            'ABC平均分': f"{np.mean(data['abc_scores']):.1f}",
+            'ABC标准差': f"{np.std(data['abc_scores']):.1f}",
+            'DSM5平均分': f"{np.mean(data['dsm5_scores']):.2f}",
+            'DSM5标准差': f"{np.std(data['dsm5_scores']):.2f}"
+        })
+    
+    return pd.DataFrame(comparison_data)
+
+
+def create_assessment_comparison_plot(results):
+    """创建评估对比可视化"""
+    # 准备数据
+    data = []
+    for record in results:
+        data.append({
+            '严重程度': record.get('template', '自定义'),
+            'ABC总分': record['abc_evaluation']['total_score'],
+            'DSM-5核心症状': record['dsm5_evaluation']['core_symptom_average'] * 30  # 缩放到相似范围
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # 创建分组条形图
+    fig = px.bar(
+        df.groupby('严重程度').mean().reset_index(),
+        x='严重程度',
+        y=['ABC总分', 'DSM-5核心症状'],
+        title='不同严重程度的ABC与DSM-5评分对比',
+        labels={'value': '评分', 'variable': '评估标准'},
+        barmode='group'
+    )
+    
+    return fig
+
+
+def display_abc_detailed_results(abc_eval):
+    """显示ABC评估详细结果"""
+    st.write(f"### ABC总分: {abc_eval['total_score']}")
+    st.write(f"### 严重程度: {abc_eval['severity']}")
+    
+    # 各领域得分雷达图
+    domain_scores = abc_eval['domain_scores']
+    domain_names = list(domain_scores.keys())
+    domain_values = list(domain_scores.values())
+    domain_max_values = [ABC_EVALUATION_METRICS[d]['max_score'] for d in domain_names]
+    domain_percentages = [v/m*100 for v, m in zip(domain_values, domain_max_values)]
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=domain_percentages,
+        theta=[d.replace("得分", "") for d in domain_names],
+        fill='toself',
+        name='得分百分比'
+    ))
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100]
+            )),
+        showlegend=False,
+        title="ABC各领域得分百分比"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # 识别到的行为
+    if abc_eval['identified_behaviors']:
+        st.write("### 识别到的行为")
+        for domain, behaviors in abc_eval['identified_behaviors'].items():
+            if behaviors:
+                st.write(f"**{domain}**:")
+                for behavior in behaviors:
+                    st.write(f"• {behavior}")
+
+
+def display_dsm5_detailed_results(dsm5_eval):
+    """显示DSM-5评估详细结果"""
+    st.write(f"### 核心症状平均分: {dsm5_eval['core_symptom_average']:.2f}/5")
+    
+    # 各维度评分条形图
+    scores = dsm5_eval['scores']
+    
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=list(scores.keys()),
+        y=list(scores.values()),
+        marker_color=['red' if v >= 4 else 'orange' if v >= 3 else 'green' for v in scores.values()]
+    ))
+    fig.update_layout(
+        title="DSM-5各维度评分",
+        yaxis_range=[0, 5],
+        yaxis_title="严重程度 (1-5分)"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # 临床观察
+    if dsm5_eval['clinical_observations']:
+        st.write("### 临床观察要点")
+        for category, observations in dsm5_eval['clinical_observations'].items():
+            if observations:
+                st.write(f"**{category}**:")
+                for obs in observations:
+                    st.write(f"• {obs}")
+
+
+def display_assessment_comparison(record):
+    """显示单个记录的评估对比"""
+    abc_eval = record['abc_evaluation']
+    dsm5_eval = record['dsm5_evaluation']
+    
+    # 严重程度对比
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric("ABC总分", abc_eval['total_score'])
+        st.write(f"判定: {abc_eval['severity']}")
+    
+    with col2:
+        st.metric("DSM-5核心症状", f"{dsm5_eval['core_symptom_average']:.2f}")
+        severity_label = "重度" if dsm5_eval['core_symptom_average'] >= 3.5 else "中度" if dsm5_eval['core_symptom_average'] >= 2.5 else "轻度"
+        st.write(f"判定: {severity_label}")
+    
+    # 一致性判断
+    abc_severe = abc_eval['total_score'] >= 67
+    dsm5_severe = dsm5_eval['core_symptom_average'] >= 3.5
+    
+    if abc_severe == dsm5_severe:
+        st.success("✅ 两种评估标准的严重程度判断一致")
+    else:
+        st.warning("⚠️ 两种评估标准的严重程度判断存在差异")
+    
+    # 详细对比
+    st.write("### 评估特点对比")
+    
+    comparison_text = []
+    
+    # ABC特点
+    if 'identified_behaviors' in abc_eval:
+        total_behaviors = sum(len(behaviors) for behaviors in abc_eval['identified_behaviors'].values())
+        comparison_text.append(f"• ABC识别了 {total_behaviors} 个具体行为")
+    
+    # DSM-5特点
+    if 'clinical_observations' in dsm5_eval:
+        total_observations = sum(len(obs) for obs in dsm5_eval['clinical_observations'].values())
+        comparison_text.append(f"• DSM-5记录了 {total_observations} 类临床观察")
+    
+    # 主要差异
+    if abc_eval['domain_scores'].get('语言领域得分', 0) > 30 and dsm5_eval['scores'].get('沟通交流能力', 0) < 3:
+        comparison_text.append("• ABC显示语言问题严重，但DSM-5评估相对较轻")
+    
+    if abc_eval['domain_scores'].get('交往领域得分', 0) > 30 and dsm5_eval['scores'].get('社交互动质量', 0) < 3:
+        comparison_text.append("• ABC显示社交障碍严重，但DSM-5评估相对较轻")
+    
+    for text in comparison_text:
+        st.write(text)
+
+
+def create_correlation_scatter(records):
+    """创建ABC与DSM-5相关性散点图"""
+    abc_scores = []
+    dsm5_scores = []
+    severities = []
+    
+    for record in records:
+        abc_scores.append(record['abc_evaluation']['total_score'])
+        dsm5_scores.append(record['dsm5_evaluation']['core_symptom_average'])
+        severities.append(record.get('template', '自定义'))
+    
+    df = pd.DataFrame({
+        'ABC总分': abc_scores,
+        'DSM-5核心症状': dsm5_scores,
+        '严重程度': severities
+    })
+    
+    fig = px.scatter(
+        df,
+        x='ABC总分',
+        y='DSM-5核心症状',
+        color='严重程度',
+        title='ABC总分与DSM-5核心症状相关性',
+        labels={'ABC总分': 'ABC总分', 'DSM-5核心症状': 'DSM-5核心症状均分'},
+        trendline="ols"
+    )
+    
+    # 添加诊断阈值线
+    fig.add_hline(y=3.5, line_dash="dash", line_color="red", annotation_text="DSM-5重度阈值")
+    fig.add_vline(x=67, line_dash="dash", line_color="red", annotation_text="ABC孤独症阈值")
+    
+    return fig
+
+
+def display_abc_analysis(records, analysis):
+    """显示ABC量表分析结果"""
+    st.write("### 📊 ABC量表评估分析")
+    
+    # ABC总分分布
+    abc_scores = [r['abc_evaluation']['total_score'] for r in records]
+    
+    fig_hist = px.histogram(
+        x=abc_scores,
+        nbins=20,
+        title="ABC总分分布",
+        labels={'x': 'ABC总分', 'y': '频次'}
+    )
+    fig_hist.add_vline(x=67, line_dash="dash", line_color="red", annotation_text="孤独症阈值")
+    fig_hist.add_vline(x=53, line_dash="dash", line_color="orange", annotation_text="轻度阈值")
+    st.plotly_chart(fig_hist, use_container_width=True)
+    
+    # 各领域得分分析
+    domain_data = {domain: [] for domain in ABC_EVALUATION_METRICS.keys()}
+    for record in records:
+        for domain, score in record['abc_evaluation']['domain_scores'].items():
+            domain_data[domain].append(score)
+    
+    # 箱线图
+    fig_box = go.Figure()
+    for domain, scores in domain_data.items():
+        fig_box.add_trace(go.Box(
+            y=scores,
+            name=domain.replace("得分", ""),
+            boxpoints='all',
+            jitter=0.3,
+            pointpos=-1.8
+        ))
+    fig_box.update_layout(
+        title="ABC各领域得分分布",
+        yaxis_title="得分"
+    )
+    st.plotly_chart(fig_box, use_container_width=True)
+    
+    # 高频行为分析
+    if st.checkbox("查看高频行为分析"):
+        behavior_stats = get_behavior_summary_stats(records)
+        if behavior_stats['total_records'] > 0:
+            st.write(f"**总评估记录**: {behavior_stats['total_records']}")
+            st.write(f"**识别的行为种类**: {behavior_stats['unique_behaviors_count']}")
+            
+            if behavior_stats['most_common']:
+                st.write("**最常见的行为**:")
+                for behavior, stats in behavior_stats['most_common'][:10]:
+                    st.write(f"• {behavior}: {stats['count']}次 ({stats['percentage']:.1f}%)")
+
+
+def display_dsm5_analysis(records, analysis):
+    """显示DSM-5标准分析结果"""
+    st.write("### 🧠 DSM-5标准评估分析")
+    
+    # 核心症状分布
+    core_scores = [r['dsm5_evaluation']['core_symptom_average'] for r in records]
+    
+    fig_hist = px.histogram(
+        x=core_scores,
+        nbins=20,
+        title="DSM-5核心症状分布",
+        labels={'x': '核心症状均分', 'y': '频次'}
+    )
+    fig_hist.add_vline(x=3.5, line_dash="dash", line_color="red", annotation_text="重度阈值")
+    fig_hist.add_vline(x=2.5, line_dash="dash", line_color="orange", annotation_text="中度阈值")
+    st.plotly_chart(fig_hist, use_container_width=True)
+    
+    # 各维度雷达图
+    avg_scores = {}
+    for metric in DSM5_EVALUATION_METRICS.keys():
+        scores = [r['dsm5_evaluation']['scores'][metric] for r in records]
+        avg_scores[metric] = np.mean(scores)
+    
+    fig_radar = go.Figure()
+    fig_radar.add_trace(go.Scatterpolar(
+        r=list(avg_scores.values()),
+        theta=list(avg_scores.keys()),
+        fill='toself',
+        name='平均严重程度'
+    ))
+    fig_radar.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[1, 5]
+            )),
+        showlegend=False,
+        title="DSM-5各维度平均评分"
+    )
+    st.plotly_chart(fig_radar, use_container_width=True)
+
+
+def display_comprehensive_comparison(records, analysis):
+    """显示综合对比分析"""
+    st.write("### 🔄 ABC与DSM-5综合对比")
+    
+    # 准备对比数据
+    comparison_data = []
+    for record in records:
+        comparison_data.append({
+            '评估ID': record['experiment_id'][:20] + '...',
+            'ABC总分': record['abc_evaluation']['total_score'],
+            'ABC判定': record['abc_evaluation']['severity'],
+            'DSM5核心': f"{record['dsm5_evaluation']['core_symptom_average']:.2f}",
+            '一致性': '✅' if (record['abc_evaluation']['total_score'] >= 67) == (record['dsm5_evaluation']['core_symptom_average'] >= 3.5) else '❌'
+        })
+    
+    df_comp = pd.DataFrame(comparison_data[:20])  # 显示前20条
+    st.dataframe(df_comp, use_container_width=True)
+    
+    if len(records) > 20:
+        st.info(f"显示前20条记录，共{len(records)}条")
+    
+    # 一致性统计
+    consistent = sum(1 for d in comparison_data if d['一致性'] == '✅')
+    inconsistent = len(comparison_data) - consistent
+    
+    fig_pie = px.pie(
+        values=[consistent, inconsistent],
+        names=['一致', '不一致'],
+        title='ABC与DSM-5评估一致性',
+        color_discrete_map={'一致': 'green', '不一致': 'red'}
+    )
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+
+def display_statistical_analysis(records):
+    """显示统计学分析"""
+    try:
+        # 准备数据
+        severity_groups = {}
+        for record in records:
+            severity = record.get('template', '自定义')
+            if severity not in severity_groups:
+                severity_groups[severity] = {
+                    'abc_scores': [],
+                    'dsm5_scores': []
+                }
+            severity_groups[severity]['abc_scores'].append(record['abc_evaluation']['total_score'])
+            severity_groups[severity]['dsm5_scores'].append(record['dsm5_evaluation']['core_symptom_average'])
+        
+        if len(severity_groups) >= 2:
+            # ABC方差分析
+            abc_groups = [scores['abc_scores'] for scores in severity_groups.values() if len(scores['abc_scores']) > 0]
+            if len(abc_groups) >= 2:
+                f_stat_abc, p_value_abc = stats.f_oneway(*abc_groups)
+                
+                st.write("**ABC总分的单因素方差分析**:")
+                st.write(f"- F统计量: {f_stat_abc:.3f}")
+                st.write(f"- p值: {p_value_abc:.4f}")
+                
+                if p_value_abc < 0.05:
+                    st.success("✅ 不同严重程度组间ABC总分差异具有统计学意义 (p < 0.05)")
+                else:
+                    st.info("ℹ️ 不同严重程度组间ABC总分差异无统计学意义 (p ≥ 0.05)")
+            
+            # DSM-5方差分析
+            dsm5_groups = [scores['dsm5_scores'] for scores in severity_groups.values() if len(scores['dsm5_scores']) > 0]
+            if len(dsm5_groups) >= 2:
+                f_stat_dsm5, p_value_dsm5 = stats.f_oneway(*dsm5_groups)
+                
+                st.write("\n**DSM-5核心症状的单因素方差分析**:")
+                st.write(f"- F统计量: {f_stat_dsm5:.3f}")
+                st.write(f"- p值: {p_value_dsm5:.4f}")
+                
+                if p_value_dsm5 < 0.05:
+                    st.success("✅ 不同严重程度组间DSM-5核心症状差异具有统计学意义 (p < 0.05)")
+                else:
+                    st.info("ℹ️ 不同严重程度组间DSM-5核心症状差异无统计学意义 (p ≥ 0.05)")
+                
+    except ImportError:
+        st.info("💡 安装scipy模块可启用统计学分析功能")
+
+
+def display_single_record_analysis(record):
+    """显示单个记录的详细分析"""
+    st.write("### 📊 详细评估分析")
+    
+    # 创建两列
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**ABC量表分析**")
+        # 饼图显示各领域贡献
+        domain_scores = record['abc_evaluation']['domain_scores']
+        fig = px.pie(
+            values=list(domain_scores.values()),
+            names=[d.replace("得分", "") for d in domain_scores.keys()],
+            title="ABC各领域得分占比"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        st.write("**DSM-5标准分析**")
+        # 雷达图显示各维度
+        scores = record['dsm5_evaluation']['scores']
+        fig = go.Figure()
+        fig.add_trace(go.Scatterpolar(
+            r=list(scores.values()),
+            theta=list(scores.keys()),
+            fill='toself'
+        ))
+        fig.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[1, 5])),
+            title="DSM-5各维度评分"
+        )
+        st.plotly_chart(fig, use_container_width=True)

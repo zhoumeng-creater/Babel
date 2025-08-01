@@ -1,4 +1,4 @@
-"""孤独症儿童AI模拟实验平台主程序 - 支持ABC量表和DSM-5双标准"""
+"""孤独症儿童AI模拟实验平台主程序 - 支持ABC量表和DSM-5双标准 - 统一评估"""
 import streamlit as st
 
 # 导入通用模块
@@ -26,8 +26,8 @@ if 'experiment_progress' not in st.session_state:
     st.session_state.experiment_progress = {'current': 0, 'total': 0}
 
 # 主页面
-st.title("🏥 孤独症儿童AI模拟实验平台 - 双标准版")
-st.markdown("**基于ABC孤独症行为量表和DSM-5诊断标准的综合评估系统**")
+st.title("🏥 孤独症儿童AI模拟实验平台 - 统一评估版")
+st.markdown("**统一行为生成，ABC量表与DSM-5标准双重评估系统**")
 
 # 侧边栏导航
 st.sidebar.title("🔍 导航")
@@ -60,56 +60,68 @@ if st.session_state.experiment_records:
     recent_record = st.session_state.experiment_records[-1]
     st.sidebar.write(f"最近评估: {recent_record['timestamp'].strftime('%m-%d %H:%M')}")
     
-    # 分别统计两种标准的数据
     import pandas as pd
     import numpy as np
     
-    abc_records = [r for r in st.session_state.experiment_records if r.get('assessment_standard', 'ABC') == 'ABC']
-    dsm5_records = [r for r in st.session_state.experiment_records if r.get('assessment_standard', 'ABC') == 'DSM5']
+    # 统计两种评估的结果
+    abc_scores = []
+    dsm5_core_scores = []
     
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        st.metric("ABC评估", len(abc_records))
-    with col2:
-        st.metric("DSM-5评估", len(dsm5_records))
+    for record in st.session_state.experiment_records:
+        if 'abc_evaluation' in record:
+            abc_scores.append(record['abc_evaluation']['total_score'])
+        if 'dsm5_evaluation' in record:
+            dsm5_core_scores.append(record['dsm5_evaluation']['core_symptom_average'])
     
-    # ABC评估统计
-    if abc_records:
-        total_scores = [r['abc_total_score'] for r in abc_records]
-        avg_score = np.mean(total_scores)
-        st.sidebar.write(f"**ABC平均总分**: {avg_score:.1f}")
-    
-    # DSM-5评估统计
-    if dsm5_records:
-        core_severities = []
-        for r in dsm5_records:
-            core_severity = (r['evaluation_scores'].get('社交互动质量', 0) + 
-                           r['evaluation_scores'].get('沟通交流能力', 0) + 
-                           r['evaluation_scores'].get('刻板重复行为', 0)) / 3
-            core_severities.append(core_severity)
-        if core_severities:
-            avg_core = np.mean(core_severities)
-            st.sidebar.write(f"**DSM-5平均核心症状**: {avg_core:.2f}/5")
-    
-    # 综合判断
-    if abc_records and len(abc_records) > len(dsm5_records):
-        if avg_score >= 67:
-            st.sidebar.error("ABC评估显示孤独症阳性为主")
-        elif avg_score >= 53:
-            st.sidebar.warning("ABC评估显示轻度孤独症为主")
+    if abc_scores:
+        avg_abc = np.mean(abc_scores)
+        st.sidebar.write(f"**ABC平均总分**: {avg_abc:.1f}")
+        
+        if avg_abc >= 67:
+            st.sidebar.error("ABC评估显示孤独症阳性")
+        elif avg_abc >= 53:
+            st.sidebar.warning("ABC评估显示可疑孤独症")
         else:
             st.sidebar.info("ABC评估处于边缘或正常范围")
-    elif dsm5_records:
-        if avg_core >= 4.0:
-            st.sidebar.error("DSM-5评估显示重度症状为主")
-        elif avg_core >= 3.0:
-            st.sidebar.warning("DSM-5评估显示中度症状为主")
-        else:
-            st.sidebar.info("DSM-5评估显示轻度症状为主")
+    
+    if dsm5_core_scores:
+        avg_dsm5 = np.mean(dsm5_core_scores)
+        st.sidebar.write(f"**DSM-5核心症状均值**: {avg_dsm5:.2f}/5")
         
+        if avg_dsm5 >= 4.0:
+            st.sidebar.error("DSM-5评估显示重度症状")
+        elif avg_dsm5 >= 3.0:
+            st.sidebar.warning("DSM-5评估显示中度症状")
+        else:
+            st.sidebar.info("DSM-5评估显示轻度症状")
+    
+    # 显示两种评估的一致性
+    if abc_scores and dsm5_core_scores:
+        st.sidebar.markdown("---")
+        st.sidebar.write("**评估一致性分析**:")
+        # 简单的一致性判断
+        abc_severe = avg_abc >= 67
+        dsm5_severe = avg_dsm5 >= 3.5
+        
+        if abc_severe == dsm5_severe:
+            st.sidebar.success("✅ 两种评估结果基本一致")
+        else:
+            st.sidebar.warning("⚠️ 两种评估结果存在差异")
 else:
     st.sidebar.write("暂无评估数据")
 
+
+st.sidebar.markdown("""
+**🔄 统一评估流程**:
+1. 生成统一的行为表现
+2. 同时进行两种评估
+3. 对比分析评估结果
+
+**优势**:
+- 真实的对比研究
+- 消除评估偏差
+- 更高的生态效度
+""")
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ℹ️ 评估标准说明")
 
@@ -222,8 +234,9 @@ st.markdown("---")
 st.markdown("""
 ### 📋 平台特点
 
-**🏥 双重标准**: 整合ABC孤独症行为量表和DSM-5诊断标准  
-**🔬 科学评估**: 行为量化评分与症状严重程度评估相结合  
+**🏥 统一生成**: 基于综合特征生成真实的孤独症行为表现  
+**🔬 双重评估**: 同一行为表现同时接受ABC和DSM-5标准评估  
+**📊 对比分析**: 比较两种评估标准的结果差异和一致性 
 **📊 专业报告**: 生成符合临床要求的综合评估报告  
 **🎯 个体化**: 支持基于两种标准的个性化评估设计
 
@@ -236,4 +249,4 @@ st.markdown("""
 **⚠️ 重要声明**: 本平台仅供学术研究和临床辅助使用，不能替代专业医师的临床诊断。
 """)
 
-st.markdown("*基于ABC量表 & DSM-5标准 | 综合评估系统 | 双标准版 v2.0*")
+st.markdown("*统一行为生成 | ABC & DSM-5双重评估 | 统一评估版 v3.0*")
