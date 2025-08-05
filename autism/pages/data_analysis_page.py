@@ -2,7 +2,7 @@
 import streamlit as st
 import numpy as np
 
-from autism.analyzer import generate_clinical_analysis, get_behavior_summary_stats
+from autism.analysis import generate_clinical_analysis, get_behavior_summary_stats
 from autism.ui_components.visualization import (
     create_correlation_scatter,
     display_abc_analysis,

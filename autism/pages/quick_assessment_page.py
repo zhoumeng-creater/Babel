@@ -2,8 +2,8 @@
 import streamlit as st
 import datetime
 
-from autism.config import UNIFIED_AUTISM_PROFILES, CLINICAL_SCENE_CONFIG
-from autism.evaluator import run_single_experiment
+from autism.configs import UNIFIED_AUTISM_PROFILES, CLINICAL_SCENE_CONFIG
+from autism.evaluation import run_single_experiment
 
 
 def page_quick_assessment():

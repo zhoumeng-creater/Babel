@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from typing import List, Dict, Any, Tuple
 
-from ..config import ABC_EVALUATION_METRICS, ABC_BEHAVIOR_ITEMS
+from ..configs import ABC_EVALUATION_METRICS, ABC_BEHAVIOR_ITEMS
 
 
 def analyze_abc_evaluations(records: List[Dict[str, Any]]) -> Dict[str, Any]:

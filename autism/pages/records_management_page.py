@@ -1,7 +1,7 @@
 """评估记录管理页面"""
 import streamlit as st
 
-from autism.analyzer import find_similar_samples
+from autism.analysis import find_similar_samples
 from autism.ui_components.filters import create_record_filters, apply_record_filters
 from autism.ui_components.result_display import display_single_record_analysis
 

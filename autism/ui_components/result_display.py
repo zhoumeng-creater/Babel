@@ -5,7 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 
-from autism.config import ABC_EVALUATION_METRICS, DSM5_EVALUATION_METRICS
+from autism.configs import ABC_EVALUATION_METRICS, DSM5_EVALUATION_METRICS
 
 
 def display_dual_assessment_results(result):

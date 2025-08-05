@@ -2,7 +2,7 @@
 import numpy as np
 from typing import List, Dict, Any
 
-from ..config import ABC_EVALUATION_METRICS, DSM5_EVALUATION_METRICS
+from ..configs import ABC_EVALUATION_METRICS, DSM5_EVALUATION_METRICS
 
 
 def prepare_clinical_export_data(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

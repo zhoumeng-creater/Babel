@@ -2,7 +2,7 @@
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
 
-from ..config import ABC_EVALUATION_METRICS, DSM5_EVALUATION_METRICS
+from ..configs import ABC_EVALUATION_METRICS, DSM5_EVALUATION_METRICS
 
 
 def calculate_sample_similarity(record1: Dict[str, Any], 

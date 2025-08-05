@@ -4,8 +4,8 @@ import pandas as pd
 import numpy as np
 
 from common.batch_processor import run_batch_processing
-from autism.config import UNIFIED_AUTISM_PROFILES, CLINICAL_SCENE_CONFIG
-from autism.evaluator import run_single_experiment, generate_experiment_batch
+from autism.configs import UNIFIED_AUTISM_PROFILES, CLINICAL_SCENE_CONFIG
+from autism.evaluation import run_single_experiment, generate_experiment_batch
 from autism.ui_components.visualization import create_assessment_comparison_plot
 from autism.ui_components.result_display import analyze_batch_consistency, create_severity_comparison_df
 

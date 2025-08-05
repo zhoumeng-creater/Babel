@@ -2,7 +2,7 @@
 import numpy as np
 from typing import List, Dict, Any
 
-from ..config import DSM5_EVALUATION_METRICS
+from ..configs import DSM5_EVALUATION_METRICS
 
 
 def analyze_dsm5_evaluations(records: List[Dict[str, Any]]) -> Dict[str, Any]:

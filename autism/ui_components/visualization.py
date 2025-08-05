@@ -6,8 +6,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from scipy import stats
 
-from autism.config import ABC_EVALUATION_METRICS, DSM5_EVALUATION_METRICS
-from autism.analyzer import get_behavior_summary_stats
+from autism.configs import ABC_EVALUATION_METRICS, DSM5_EVALUATION_METRICS
+from autism.analysis import get_behavior_summary_stats
 
 
 def create_assessment_comparison_plot(results):
