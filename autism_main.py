@@ -6,7 +6,7 @@ from common.config import EXCEL_AVAILABLE
 from common.ui_components import display_sidebar_stats
 
 # 导入孤独症专用模块
-from autism.ui_pages import (
+from autism.pages import (
     page_quick_assessment,
     page_batch_research,
     page_custom_assessment,

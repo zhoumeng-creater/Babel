@@ -11,7 +11,7 @@ from common.exporters import (
     create_excel_workbook, apply_excel_styles, create_zip_package
 )
 from common.exporters.text_exporter import export_to_text
-from .analyzer import generate_clinical_analysis, prepare_clinical_export_data
+from .analysis import generate_clinical_analysis, prepare_clinical_export_data
 
 
 def page_report_center():
