@@ -11,10 +11,11 @@ def export_to_csv(data_list, encoding='utf-8-sig'):
         encoding: 编码格式
     
     Returns:
-        str: CSV格式的字符串
+        bytes: CSV格式的字节数据（而不是字符串）
     """
     if not data_list:
-        return ""
+        return b""
     
     df = pd.DataFrame(data_list)
-    return df.to_csv(index=False, encoding=encoding)
+    # 直接返回编码后的字节流
+    return df.to_csv(index=False, encoding=encoding).encode(encoding)

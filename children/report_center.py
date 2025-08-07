@@ -26,143 +26,214 @@ def page_report_center():
     
     st.success(f"📊 当前共有 {len(records)} 条临床评估记录可生成报告")
     
-    # 报告类型选择
-    st.subheader("📋 选择报告类型")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("### 📄 标准临床报告")
+    # 创建两个标签页
+    tab1, tab2 = st.tabs(["📊 生成报告", "📥 导入数据"])
+
+    with tab1:
+        # 报告类型选择
+        st.subheader("📋 选择报告类型")
         
-        # 基础CSV报告
-        if st.button("📊 下载基础评估数据 (CSV)", use_container_width=True):
-            export_data = prepare_clinical_export_data(records)
-            csv_content = export_to_csv(export_data)
-            
-            st.download_button(
-                label="⬇️ 下载临床评估数据",
-                data=csv_content,
-                file_name=f"autism_clinical_assessment_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime='text/csv'
-            )
+        col1, col2 = st.columns(2)
         
-        # 对话记录下载
-        if st.button("💬 下载行为观察记录 (TXT)", use_container_width=True):
-            observation_content = create_observation_text(records)
+        with col1:
+            st.write("### 📄 标准临床报告")
             
-            st.download_button(
-                label="⬇️ 下载行为观察记录",
-                data=export_to_text(observation_content),
-                file_name=f"autism_clinical_observations_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                mime='text/plain'
-            )
-        
-        # JSON完整数据
-        if st.button("🔧 下载完整临床数据 (JSON)", use_container_width=True):
-            json_data = create_complete_json_data(records)
-            json_str = export_to_json(json_data)
-            
-            st.download_button(
-                label="⬇️ 下载完整临床数据",
-                data=json_str.encode('utf-8'),
-                file_name=f"autism_clinical_complete_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime='application/json'
-            )
-    
-    with col2:
-        st.write("### 📈 专业分析报告")
-        
-        # 生成临床分析报告
-        if st.button("📊 生成临床统计分析", use_container_width=True):
-            with st.spinner("正在生成临床分析报告..."):
-                analysis = generate_clinical_analysis(records)
-            
-            st.success("✅ 临床分析报告生成完成！")
-            
-            # 显示分析预览
-            with st.expander("📋 临床分析报告预览", expanded=True):
-                if analysis.get('临床评估概况'):
-                    st.write("**临床评估概况:**")
-                    for key, value in analysis['临床评估概况'].items():
-                        st.write(f"- {key}: {value}")
-                
-                if analysis.get('整体临床表现'):
-                    st.write("**整体临床表现:**")
-                    for key, value in analysis['整体临床表现'].items():
-                        st.write(f"- {key}: {value}")
-                
-                if analysis.get('临床发现与建议'):
-                    st.write("**临床发现与建议:**")
-                    for finding in analysis['临床发现与建议']:
-                        st.write(f"- {finding}")
-            
-            # 提供分析报告下载
-            analysis_json = export_to_json(analysis)
-            st.download_button(
-                label="⬇️ 下载临床分析报告 (JSON)",
-                data=analysis_json.encode('utf-8'),
-                file_name=f"autism_clinical_analysis_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime='application/json'
-            )
-        
-        # Excel专业报告
-        if EXCEL_AVAILABLE:
-            if st.button("📋 生成专业Excel报告", use_container_width=True):
-                with st.spinner("正在生成专业Excel报告..."):
-                    analysis = generate_clinical_analysis(records)
-                    excel_data = create_clinical_excel_report(records, analysis)
-                
-                if excel_data:
-                    st.success("✅ 专业Excel报告生成完成！")
-                    
-                    st.download_button(
-                        label="⬇️ 下载专业Excel报告",
-                        data=excel_data,
-                        file_name=f"autism_clinical_professional_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                    )
-                else:
-                    st.error("❌ Excel报告生成失败，请尝试其他格式")
-        else:
-            st.info("💡 Excel报告功能需要安装openpyxl模块")
-            st.code("pip install openpyxl")
-            
-            # 替代详细报告
-            if st.button("📊 生成详细文本报告", use_container_width=True):
-                with st.spinner("正在生成详细报告..."):
-                    analysis = generate_clinical_analysis(records)
-                
-                # 创建详细文本报告
-                detailed_report = create_detailed_text_report(records, analysis)
-                
-                st.success("✅ 详细文本报告生成完成！")
+            # 基础CSV报告
+            if st.button("📊 下载基础评估数据 (CSV)", use_container_width=True):
+                export_data = prepare_clinical_export_data(records)
+                csv_content = export_to_csv(export_data)
                 
                 st.download_button(
-                    label="⬇️ 下载详细文本报告",
-                    data=export_to_text(detailed_report),
-                    file_name=f"autism_clinical_detailed_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    label="⬇️ 下载临床评估数据",
+                    data=csv_content,
+                    file_name=f"autism_clinical_assessment_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime='text/csv'
+                )
+            
+            # 对话记录下载
+            if st.button("💬 下载行为观察记录 (TXT)", use_container_width=True):
+                observation_content = create_observation_text(records)
+                
+                st.download_button(
+                    label="⬇️ 下载行为观察记录",
+                    data=export_to_text(observation_content),
+                    file_name=f"autism_clinical_observations_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                     mime='text/plain'
                 )
+            
+            # JSON完整数据
+            if st.button("🔧 下载完整临床数据 (JSON)", use_container_width=True):
+                json_data = create_complete_json_data(records)
+                json_str = export_to_json(json_data)
+                
+                st.download_button(
+                    label="⬇️ 下载完整临床数据",
+                    data=json_str.encode('utf-8'),
+                    file_name=f"autism_clinical_complete_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime='application/json'
+                )
         
-        # 研究数据包
-        if st.button("📦 生成完整研究数据包", use_container_width=True, type="primary"):
-            with st.spinner("正在生成完整研究数据包..."):
-                zip_data = create_research_package(records)
+        with col2:
+            st.write("### 📈 专业分析报告")
             
-            st.success("✅ 完整研究数据包生成完成！")
+            # 生成临床分析报告
+            if st.button("📊 生成临床统计分析", use_container_width=True):
+                with st.spinner("正在生成临床分析报告..."):
+                    analysis = generate_clinical_analysis(records)
+                
+                st.success("✅ 临床分析报告生成完成！")
+                
+                # 显示分析预览
+                with st.expander("📋 临床分析报告预览", expanded=True):
+                    if analysis.get('临床评估概况'):
+                        st.write("**临床评估概况:**")
+                        for key, value in analysis['临床评估概况'].items():
+                            st.write(f"- {key}: {value}")
+                    
+                    if analysis.get('整体临床表现'):
+                        st.write("**整体临床表现:**")
+                        for key, value in analysis['整体临床表现'].items():
+                            st.write(f"- {key}: {value}")
+                    
+                    if analysis.get('临床发现与建议'):
+                        st.write("**临床发现与建议:**")
+                        for finding in analysis['临床发现与建议']:
+                            st.write(f"- {finding}")
+                
+                # 提供分析报告下载
+                analysis_json = export_to_json(analysis)
+                st.download_button(
+                    label="⬇️ 下载临床分析报告 (JSON)",
+                    data=analysis_json.encode('utf-8'),
+                    file_name=f"autism_clinical_analysis_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime='application/json'
+                )
             
-            st.download_button(
-                label="⬇️ 下载完整研究数据包 (ZIP)",
-                data=zip_data,
-                file_name=f"autism_clinical_research_package_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                mime='application/zip'
-            )
-    
-    # 数据统计概览
-    display_data_overview(records)
-    
-    # 数据预览
-    display_data_preview(records)
+            # Excel专业报告
+            if EXCEL_AVAILABLE:
+                if st.button("📋 生成专业Excel报告", use_container_width=True):
+                    with st.spinner("正在生成专业Excel报告..."):
+                        analysis = generate_clinical_analysis(records)
+                        excel_data = create_clinical_excel_report(records, analysis)
+                    
+                    if excel_data:
+                        st.success("✅ 专业Excel报告生成完成！")
+                        
+                        st.download_button(
+                            label="⬇️ 下载专业Excel报告",
+                            data=excel_data,
+                            file_name=f"autism_clinical_professional_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                        )
+                    else:
+                        st.error("❌ Excel报告生成失败，请尝试其他格式")
+            else:
+                st.info("💡 Excel报告功能需要安装openpyxl模块")
+                st.code("pip install openpyxl")
+                
+                # 替代详细报告
+                if st.button("📊 生成详细文本报告", use_container_width=True):
+                    with st.spinner("正在生成详细报告..."):
+                        analysis = generate_clinical_analysis(records)
+                    
+                    # 创建详细文本报告
+                    detailed_report = create_detailed_text_report(records, analysis)
+                    
+                    st.success("✅ 详细文本报告生成完成！")
+                    
+                    st.download_button(
+                        label="⬇️ 下载详细文本报告",
+                        data=export_to_text(detailed_report),
+                        file_name=f"autism_clinical_detailed_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                        mime='text/plain'
+                    )
+            
+            # 研究数据包
+            if st.button("📦 生成完整研究数据包", use_container_width=True, type="primary"):
+                with st.spinner("正在生成完整研究数据包..."):
+                    zip_data = create_research_package(records)
+                
+                st.success("✅ 完整研究数据包生成完成！")
+                
+                st.download_button(
+                    label="⬇️ 下载完整研究数据包 (ZIP)",
+                    data=zip_data,
+                    file_name=f"autism_clinical_research_package_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                    mime='application/zip'
+                )
+        
+        # 数据统计概览
+        display_data_overview(records)
+        
+        # 数据预览
+        display_data_preview(records)
+
+    with tab2:
+        # 添加简化的导入功能
+        st.subheader("📥 快速导入历史数据")
+        st.markdown("从文件导入历史儿童发展观察数据到系统中")
+        
+        uploaded_file = st.file_uploader(
+            "选择要导入的文件",
+            type=['csv', 'json', 'xlsx', 'xls', 'zip'],
+            help="支持从导出的报告文件重新导入数据"
+        )
+        
+        if uploaded_file is not None:
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.info(f"📄 已选择文件: {uploaded_file.name} ({uploaded_file.size // 1024} KB)")
+            
+            with col2:
+                if st.button("🚀 导入", type="primary"):
+                    try:
+                        from common.importers import get_importer
+                        from common.data_storage_manager import DataStorageManager
+                        
+                        # 获取导入器
+                        file_ext = uploaded_file.name.split('.')[-1].lower()
+                        importer_class = get_importer(file_ext)
+                        importer = importer_class(assessment_type='children')
+                        
+                        # 导入数据
+                        with st.spinner("正在导入数据..."):
+                            file_content = uploaded_file.read()
+                            result = importer.import_data(file_content)
+                            
+                            if result.status.value == 'success':
+                                # 合并数据
+                                storage_manager = DataStorageManager('children')
+                                merged_count, _ = storage_manager.merge_imported_data(
+                                    result.records, 
+                                    merge_strategy='skip_duplicates'
+                                )
+                                
+                                st.success(f"✅ 成功导入 {merged_count} 条观察记录")
+                                st.rerun()
+                            else:
+                                st.error(f"导入失败: {result.errors[0]['message'] if result.errors else '未知错误'}")
+                                
+                    except Exception as e:
+                        st.error(f"导入出错: {str(e)}")
+        
+        # 导入说明
+        with st.expander("ℹ️ 导入说明"):
+            st.markdown("""
+            - 支持导入之前导出的所有格式文件
+            - CSV/Excel文件会自动识别数据格式
+            - JSON文件保留完整的发展观察数据结构
+            - ZIP包可以包含多个文件批量导入
+            - 系统会自动跳过重复的记录
+            
+            **提示**: 如需更多导入选项，请访问"数据导入"页面
+            """)
+        
+        # 添加跳转到完整导入页面的链接
+        st.markdown("---")
+        if st.button("🔧 前往完整数据导入页面"):
+            st.switch_page("pages/data_import_page.py")
+
 
 
 def create_observation_text(records):

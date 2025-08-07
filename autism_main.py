@@ -33,7 +33,8 @@ st.markdown("**统一行为生成，ABC量表与DSM-5标准双重评估系统**"
 st.sidebar.title("🔍 导航")
 page = st.sidebar.selectbox("选择功能页面", [
     "快速临床评估", "批量临床研究", "个性化评估设计", 
-    "临床数据分析", "评估记录管理", "📊 临床报告中心"
+    "临床数据分析", "评估记录管理", "临床数据导入",
+    "📊 临床报告中心"
 ])
 
 # 页面路由
@@ -47,6 +48,9 @@ elif page == "临床数据分析":
     page_data_analysis()
 elif page == "评估记录管理":
     page_records_management()
+elif page == "临床数据导入":
+    from autism.pages.data_import_page import page_data_import
+    page_data_import()
 elif page == "📊 临床报告中心":
     # 导入报告页面（这个页面会比较大，单独导入）
     from autism.report_center import page_report_center

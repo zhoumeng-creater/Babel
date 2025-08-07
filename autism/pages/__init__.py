@@ -5,6 +5,7 @@ from .batch_research_page import page_batch_research
 from .custom_assessment_page import page_custom_assessment
 from .data_analysis_page import page_data_analysis
 from .records_management_page import page_records_management
+from .data_import_page import page_data_import
 
 __all__ = [
     'page_quick_assessment',
