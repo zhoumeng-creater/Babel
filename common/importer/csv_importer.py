@@ -250,8 +250,19 @@ class CSVImporter(BaseImporter):
         return converted
     
     def _extract_unified_scores(self, record: Dict[str, Any]) -> Dict[str, Any]:
-        """提取统一评估格式的分数"""
+        """提取统一评估格式的分数 - 修复版"""
         result = {}
+        
+        # 领域名称映射
+        domain_mapping = {
+            '感觉': '感觉领域得分',
+            '交往': '交往领域得分',
+            '躯体运动': '躯体运动领域得分',
+            '运动': '躯体运动领域得分',
+            '语言': '语言领域得分',
+            '社交与自理': '社交与自理领域得分',
+            '自理': '社交与自理领域得分'
+        }
         
         # ABC评估数据
         abc_evaluation = {
@@ -263,8 +274,37 @@ class CSVImporter(BaseImporter):
         # 提取ABC各领域分数
         for key, value in record.items():
             if key.startswith('ABC_') and key != 'ABC总分':
+                # 去除 ABC_ 前缀
                 domain = key.replace('ABC_', '')
-                abc_evaluation['domain_scores'][domain] = self._safe_float(value)
+                
+                # 标准化领域名称
+                if domain in domain_mapping:
+                    normalized_domain = domain_mapping[domain]
+                elif not domain.endswith('领域得分'):
+                    # 如果不在映射表中且不以"领域得分"结尾，添加后缀
+                    normalized_domain = f"{domain}领域得分"
+                else:
+                    # 已经是标准格式
+                    normalized_domain = domain
+                
+                abc_evaluation['domain_scores'][normalized_domain] = self._safe_float(value)
+        
+        # 如果没有通过ABC_前缀找到领域分数，尝试其他可能的格式
+        if not abc_evaluation['domain_scores']:
+            # 尝试直接查找领域名称
+            possible_domains = [
+                '感觉', '交往', '躯体运动', '运动', '语言', '社交与自理', '自理',
+                '感觉领域得分', '交往领域得分', '躯体运动领域得分', '语言领域得分', '社交与自理领域得分'
+            ]
+            
+            for domain in possible_domains:
+                if domain in record:
+                    # 标准化领域名称
+                    normalized_domain = domain_mapping.get(domain, domain)
+                    if not normalized_domain.endswith('领域得分'):
+                        normalized_domain = f"{normalized_domain}领域得分"
+                    
+                    abc_evaluation['domain_scores'][normalized_domain] = self._safe_float(record[domain])
         
         result['abc_evaluation'] = abc_evaluation
         

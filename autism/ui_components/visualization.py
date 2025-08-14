@@ -1,4 +1,4 @@
-"""可视化组件"""
+"""可视化组件 - 修复版本，支持不同格式的领域名称"""
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -37,15 +37,39 @@ def create_assessment_comparison_plot(results):
 
 
 def create_correlation_scatter(records):
-    """创建ABC与DSM-5相关性散点图"""
+    """创建ABC与DSM-5相关性散点图 - 支持新旧格式"""
     abc_scores = []
     dsm5_scores = []
     severities = []
     
     for record in records:
-        abc_scores.append(record['abc_evaluation']['total_score'])
-        dsm5_scores.append(record['dsm5_evaluation']['core_symptom_average'])
+        # 获取ABC总分
+        if 'abc_evaluation' in record:
+            abc_scores.append(record['abc_evaluation']['total_score'])
+        elif 'abc_total_score' in record:
+            abc_scores.append(record['abc_total_score'])
+        else:
+            continue
+            
+        # 获取DSM5核心症状
+        if 'dsm5_evaluation' in record:
+            dsm5_scores.append(record['dsm5_evaluation']['core_symptom_average'])
+        elif 'dsm5_core_symptom_average' in record:
+            dsm5_scores.append(record['dsm5_core_symptom_average'])
+        else:
+            continue
+            
         severities.append(record.get('template', '自定义'))
+    
+    if not abc_scores:
+        # 返回空图表
+        fig = go.Figure()
+        fig.add_annotation(
+            text="没有足够的数据来创建相关性图表",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False
+        )
+        return fig
     
     df = pd.DataFrame({
         'ABC总分': abc_scores,
@@ -60,7 +84,7 @@ def create_correlation_scatter(records):
         color='严重程度',
         title='ABC总分与DSM-5核心症状相关性',
         labels={'ABC总分': 'ABC总分', 'DSM-5核心症状': 'DSM-5核心症状均分'},
-        trendline="ols"
+        trendline="ols" if len(abc_scores) > 2 else None
     )
     
     # 添加诊断阈值线
@@ -70,12 +94,62 @@ def create_correlation_scatter(records):
     return fig
 
 
+def normalize_domain_name(domain_name):
+    """标准化领域名称，处理不同格式的兼容性"""
+    # 创建映射表
+    domain_mapping = {
+        '感觉': '感觉领域得分',
+        '交往': '交往领域得分',
+        '躯体运动': '躯体运动领域得分',
+        '运动': '躯体运动领域得分',
+        '语言': '语言领域得分',
+        '社交与自理': '社交与自理领域得分',
+        '自理': '社交与自理领域得分',
+        # 已经是完整名称的保持不变
+        '感觉领域得分': '感觉领域得分',
+        '交往领域得分': '交往领域得分',
+        '躯体运动领域得分': '躯体运动领域得分',
+        '语言领域得分': '语言领域得分',
+        '社交与自理领域得分': '社交与自理领域得分'
+    }
+    
+    return domain_mapping.get(domain_name, domain_name)
+
+
 def display_abc_analysis(records, analysis):
-    """显示ABC量表分析结果"""
+    """显示ABC量表分析结果 - 增强兼容性"""
     st.write("### 📊 ABC量表评估分析")
     
+    # 收集所有包含ABC评估的记录
+    abc_records = []
+    for r in records:
+        if 'abc_evaluation' in r:
+            abc_records.append(r)
+        elif 'abc_total_score' in r:
+            # 转换旧格式为新格式结构
+            abc_eval = {
+                'total_score': r.get('abc_total_score', 0),
+                'severity': r.get('abc_severity', '未知'),
+                'domain_scores': {}
+            }
+            # 尝试从其他字段提取领域分数
+            if 'evaluation_scores' in r:
+                for key, value in r['evaluation_scores'].items():
+                    normalized_key = normalize_domain_name(key)
+                    if normalized_key in ABC_EVALUATION_METRICS:
+                        abc_eval['domain_scores'][normalized_key] = value
+            
+            abc_records.append({
+                'abc_evaluation': abc_eval,
+                'template': r.get('template', '自定义')
+            })
+    
+    if not abc_records:
+        st.info("📊 没有ABC评估数据")
+        return
+    
     # ABC总分分布
-    abc_scores = [r['abc_evaluation']['total_score'] for r in records]
+    abc_scores = [r['abc_evaluation']['total_score'] for r in abc_records]
     
     fig_hist = px.histogram(
         x=abc_scores,
@@ -87,27 +161,42 @@ def display_abc_analysis(records, analysis):
     fig_hist.add_vline(x=53, line_dash="dash", line_color="orange", annotation_text="轻度阈值")
     st.plotly_chart(fig_hist, use_container_width=True)
     
-    # 各领域得分分析
+    # 各领域得分分析 - 使用灵活的数据收集方式
     domain_data = {domain: [] for domain in ABC_EVALUATION_METRICS.keys()}
-    for record in records:
-        for domain, score in record['abc_evaluation']['domain_scores'].items():
-            domain_data[domain].append(score)
     
-    # 箱线图
-    fig_box = go.Figure()
-    for domain, scores in domain_data.items():
-        fig_box.add_trace(go.Box(
-            y=scores,
-            name=domain.replace("得分", ""),
-            boxpoints='all',
-            jitter=0.3,
-            pointpos=-1.8
-        ))
-    fig_box.update_layout(
-        title="ABC各领域得分分布",
-        yaxis_title="得分"
-    )
-    st.plotly_chart(fig_box, use_container_width=True)
+    for record in abc_records:
+        domain_scores = record['abc_evaluation'].get('domain_scores', {})
+        
+        # 遍历记录中的领域分数
+        for domain, score in domain_scores.items():
+            # 标准化领域名称
+            normalized_domain = normalize_domain_name(domain)
+            
+            # 如果标准化后的名称在我们的指标中，添加分数
+            if normalized_domain in domain_data:
+                domain_data[normalized_domain].append(score)
+    
+    # 过滤掉没有数据的领域
+    valid_domain_data = {domain: scores for domain, scores in domain_data.items() if scores}
+    
+    if valid_domain_data:
+        # 箱线图
+        fig_box = go.Figure()
+        for domain, scores in valid_domain_data.items():
+            fig_box.add_trace(go.Box(
+                y=scores,
+                name=domain.replace("领域得分", "").replace("得分", ""),
+                boxpoints='all',
+                jitter=0.3,
+                pointpos=-1.8
+            ))
+        fig_box.update_layout(
+            title="ABC各领域得分分布",
+            yaxis_title="得分"
+        )
+        st.plotly_chart(fig_box, use_container_width=True)
+    else:
+        st.info("没有足够的领域得分数据来创建箱线图")
     
     # 高频行为分析
     if st.checkbox("查看高频行为分析"):
@@ -123,11 +212,31 @@ def display_abc_analysis(records, analysis):
 
 
 def display_dsm5_analysis(records, analysis):
-    """显示DSM-5标准分析结果"""
+    """显示DSM-5标准分析结果 - 增强兼容性"""
     st.write("### 🧠 DSM-5标准评估分析")
     
+    # 收集所有包含DSM5评估的记录
+    dsm5_records = []
+    for r in records:
+        if 'dsm5_evaluation' in r:
+            dsm5_records.append(r)
+        elif 'dsm5_core_symptom_average' in r:
+            # 转换旧格式
+            dsm5_eval = {
+                'core_symptom_average': r.get('dsm5_core_symptom_average', 0),
+                'scores': r.get('evaluation_scores', {})
+            }
+            dsm5_records.append({
+                'dsm5_evaluation': dsm5_eval,
+                'template': r.get('template', '自定义')
+            })
+    
+    if not dsm5_records:
+        st.info("📊 没有DSM-5评估数据")
+        return
+    
     # 核心症状分布
-    core_scores = [r['dsm5_evaluation']['core_symptom_average'] for r in records]
+    core_scores = [r['dsm5_evaluation']['core_symptom_average'] for r in dsm5_records]
     
     fig_hist = px.histogram(
         x=core_scores,
@@ -141,49 +250,82 @@ def display_dsm5_analysis(records, analysis):
     
     # 各维度雷达图
     avg_scores = {}
-    for metric in DSM5_EVALUATION_METRICS.keys():
-        scores = [r['dsm5_evaluation']['scores'][metric] for r in records]
-        avg_scores[metric] = np.mean(scores)
     
-    fig_radar = go.Figure()
-    fig_radar.add_trace(go.Scatterpolar(
-        r=list(avg_scores.values()),
-        theta=list(avg_scores.keys()),
-        fill='toself',
-        name='平均严重程度'
-    ))
-    fig_radar.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[1, 5]
-            )),
-        showlegend=False,
-        title="DSM-5各维度平均评分"
-    )
-    st.plotly_chart(fig_radar, use_container_width=True)
+    # 收集各维度分数
+    for metric in DSM5_EVALUATION_METRICS.keys():
+        scores = []
+        for r in dsm5_records:
+            dsm5_scores = r['dsm5_evaluation'].get('scores', {})
+            if metric in dsm5_scores:
+                scores.append(dsm5_scores[metric])
+        if scores:
+            avg_scores[metric] = np.mean(scores)
+    
+    if avg_scores:
+        fig_radar = go.Figure()
+        fig_radar.add_trace(go.Scatterpolar(
+            r=list(avg_scores.values()),
+            theta=list(avg_scores.keys()),
+            fill='toself',
+            name='平均严重程度'
+        ))
+        fig_radar.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[1, 5]
+                )),
+            showlegend=False,
+            title="DSM-5各维度平均评分"
+        )
+        st.plotly_chart(fig_radar, use_container_width=True)
+    else:
+        st.info("没有足够的DSM-5维度数据来创建雷达图")
 
 
 def display_comprehensive_comparison(records, analysis):
     """显示综合对比分析"""
     st.write("### 🔄 ABC与DSM-5综合对比")
     
-    # 准备对比数据
+    # 准备对比数据 - 只处理包含两种评估的记录
     comparison_data = []
     for record in records:
-        comparison_data.append({
-            '评估ID': record['experiment_id'][:20] + '...',
-            'ABC总分': record['abc_evaluation']['total_score'],
-            'ABC判定': record['abc_evaluation']['severity'],
-            'DSM5核心': f"{record['dsm5_evaluation']['core_symptom_average']:.2f}",
-            '一致性': '✅' if (record['abc_evaluation']['total_score'] >= 67) == (record['dsm5_evaluation']['core_symptom_average'] >= 3.5) else '❌'
-        })
+        # 检查是否同时包含两种评估
+        has_abc = 'abc_evaluation' in record or 'abc_total_score' in record
+        has_dsm5 = 'dsm5_evaluation' in record or 'dsm5_core_symptom_average' in record
+        
+        if has_abc and has_dsm5:
+            # 获取ABC数据
+            if 'abc_evaluation' in record:
+                abc_total = record['abc_evaluation']['total_score']
+                abc_severity = record['abc_evaluation']['severity']
+            else:
+                abc_total = record.get('abc_total_score', 0)
+                abc_severity = record.get('abc_severity', '未知')
+            
+            # 获取DSM5数据
+            if 'dsm5_evaluation' in record:
+                dsm5_core = record['dsm5_evaluation']['core_symptom_average']
+            else:
+                dsm5_core = record.get('dsm5_core_symptom_average', 0)
+            
+            comparison_data.append({
+                '评估ID': record.get('experiment_id', 'ID')[:20] + '...',
+                'ABC总分': abc_total,
+                'ABC判定': abc_severity,
+                'DSM5核心': f"{dsm5_core:.2f}",
+                '一致性': '✅' if (abc_total >= 67) == (dsm5_core >= 3.5) else '❌'
+            })
+    
+    if not comparison_data:
+        st.info("📊 没有同时包含两种评估的记录")
+        return
     
     df_comp = pd.DataFrame(comparison_data[:20])  # 显示前20条
     st.dataframe(df_comp, use_container_width=True)
     
-    if len(records) > 20:
-        st.info(f"显示前20条记录，共{len(records)}条")
+    if len(comparison_data) > 20:
+        st.info(f"显示前20条记录，共{len(comparison_data)}条")
     
     # 一致性统计
     consistent = sum(1 for d in comparison_data if d['一致性'] == '✅')
@@ -201,7 +343,7 @@ def display_comprehensive_comparison(records, analysis):
 def display_statistical_analysis(records):
     """显示统计学分析"""
     try:
-        # 准备数据
+        # 准备数据 - 支持新旧格式
         severity_groups = {}
         for record in records:
             severity = record.get('template', '自定义')
@@ -210,8 +352,18 @@ def display_statistical_analysis(records):
                     'abc_scores': [],
                     'dsm5_scores': []
                 }
-            severity_groups[severity]['abc_scores'].append(record['abc_evaluation']['total_score'])
-            severity_groups[severity]['dsm5_scores'].append(record['dsm5_evaluation']['core_symptom_average'])
+            
+            # 获取ABC分数
+            if 'abc_evaluation' in record:
+                severity_groups[severity]['abc_scores'].append(record['abc_evaluation']['total_score'])
+            elif 'abc_total_score' in record:
+                severity_groups[severity]['abc_scores'].append(record['abc_total_score'])
+            
+            # 获取DSM5分数
+            if 'dsm5_evaluation' in record:
+                severity_groups[severity]['dsm5_scores'].append(record['dsm5_evaluation']['core_symptom_average'])
+            elif 'dsm5_core_symptom_average' in record:
+                severity_groups[severity]['dsm5_scores'].append(record['dsm5_core_symptom_average'])
         
         if len(severity_groups) >= 2:
             # ABC方差分析

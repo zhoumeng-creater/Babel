@@ -157,7 +157,7 @@ class DataStorageManager:
         return record[id_field]
     
     def _standardize_record(self, record: Dict) -> Dict:
-        """标准化记录格式"""
+        """标准化记录格式 - 增强版本，支持格式转换"""
         # 确保必需字段存在
         standardized = record.copy()
         
@@ -177,12 +177,150 @@ class DataStorageManager:
         if 'scene' not in standardized:
             standardized['scene'] = '未知场景'
         
-        # 确保有评估类型
-        if 'assessment_type' not in standardized:
-            standardized['assessment_type'] = self.assessment_type
+        # 转换旧格式到新格式（如果需要）
+        if self.assessment_type == 'autism':
+            standardized = self._convert_to_unified_format(standardized)
         
         return standardized
     
+    def normalize_domain_names_in_scores(domain_scores):
+        """标准化领域分数字典中的键名"""
+        # 创建映射表
+        domain_mapping = {
+            '感觉': '感觉领域得分',
+            '交往': '交往领域得分',
+            '躯体运动': '躯体运动领域得分',
+            '运动': '躯体运动领域得分',
+            '语言': '语言领域得分',
+            '社交与自理': '社交与自理领域得分',
+            '自理': '社交与自理领域得分',
+            # 已经是完整名称的保持不变
+            '感觉领域得分': '感觉领域得分',
+            '交往领域得分': '交往领域得分',
+            '躯体运动领域得分': '躯体运动领域得分',
+            '语言领域得分': '语言领域得分',
+            '社交与自理领域得分': '社交与自理领域得分'
+        }
+        
+        normalized_scores = {}
+        for domain, score in domain_scores.items():
+            normalized_domain = domain_mapping.get(domain, domain)
+            normalized_scores[normalized_domain] = score
+        
+        return normalized_scores
+
+
+    def _convert_to_unified_format(self, record: Dict) -> Dict:
+        """将旧格式数据转换为统一评估格式 - 增强版"""
+        # 如果已经是新格式，直接返回
+        if 'abc_evaluation' in record and 'dsm5_evaluation' in record:
+            # 标准化领域名称
+            if 'domain_scores' in record['abc_evaluation']:
+                record['abc_evaluation']['domain_scores'] = normalize_domain_names_in_scores(
+                    record['abc_evaluation']['domain_scores']
+                )
+            return record
+        
+        # 检查是否是CSV导入器已经部分转换的格式
+        if record.get('assessment_standard') == 'UNIFIED':
+            # 数据已经被CSV导入器标记为统一格式，但可能缺少结构
+            if 'abc_evaluation' not in record and 'abc_total_score' in record:
+                # 从扁平数据重建结构
+                domain_scores = {}
+                
+                # 提取ABC领域分数
+                for key, value in record.items():
+                    if key.startswith('ABC_') and key != 'ABC总分':
+                        domain = key.replace('ABC_', '')
+                        # 添加"领域得分"后缀
+                        if not domain.endswith('领域得分'):
+                            domain = f"{domain}领域得分"
+                        domain_scores[domain] = value
+                
+                # 标准化领域名称
+                domain_scores = normalize_domain_names_in_scores(domain_scores)
+                
+                record['abc_evaluation'] = {
+                    'total_score': record.get('abc_total_score', 0),
+                    'severity': record.get('abc_severity', '未知'),
+                    'domain_scores': domain_scores
+                }
+            
+            if 'dsm5_evaluation' not in record and 'dsm5_core_symptom_average' in record:
+                record['dsm5_evaluation'] = {
+                    'core_symptom_average': record.get('dsm5_core_symptom_average', 0),
+                    'scores': {}
+                }
+                
+                # 提取DSM5分数
+                for key, value in record.items():
+                    if key.startswith('DSM5_'):
+                        metric = key.replace('DSM5_', '')
+                        record['dsm5_evaluation']['scores'][metric] = value
+        
+        # 处理旧格式ABC评估
+        elif record.get('assessment_standard') == 'ABC' and 'evaluation_scores' in record:
+            scores = record['evaluation_scores']
+            total_score = sum(scores.values())
+            
+            # 计算领域分数（简化版本）
+            domain_scores = {
+                '感觉领域得分': sum(scores.get(item, 0) for item in ['感觉', '感觉异常']),
+                '交往领域得分': sum(scores.get(item, 0) for item in ['交往', '人际交往困难']),
+                '躯体运动领域得分': scores.get('躯体运动', 0),
+                '语言领域得分': sum(scores.get(item, 0) for item in ['语言', '重复性语言']),
+                '社交与自理领域得分': scores.get('生活自理', 0)
+            }
+            
+            # 计算严重程度
+            if total_score <= 30:
+                severity = '无明显症状'
+            elif total_score <= 67:
+                severity = '轻度'
+            elif total_score <= 100:
+                severity = '中度'
+            else:
+                severity = '重度'
+            
+            record['abc_evaluation'] = {
+                'total_score': total_score,
+                'severity': severity,
+                'domain_scores': domain_scores,
+                'identified_behaviors': {}
+            }
+            
+            # 添加空的DSM5评估以保持格式一致
+            record['dsm5_evaluation'] = {
+                'core_symptom_average': 0,
+                'scores': {},
+                'note': '此记录仅包含ABC评估'
+            }
+        
+        # 处理旧格式DSM5评估
+        elif record.get('assessment_standard') == 'DSM5' and 'evaluation_scores' in record:
+            scores = record['evaluation_scores']
+            
+            # 计算核心症状均分
+            core_metrics = ['社交情感互惠缺陷', '非言语交流缺陷', 
+                        '发展维持关系缺陷', '刻板重复动作']
+            core_scores = [scores.get(m, 0) for m in core_metrics if m in scores]
+            core_average = sum(core_scores) / len(core_scores) if core_scores else 0
+            
+            record['dsm5_evaluation'] = {
+                'core_symptom_average': core_average,
+                'scores': scores
+            }
+            
+            # 添加空的ABC评估以保持格式一致
+            record['abc_evaluation'] = {
+                'total_score': 0,
+                'severity': '未评估',
+                'domain_scores': {},
+                'note': '此记录仅包含DSM-5评估'
+            }
+        
+        return record
+
     def _update_statistics(self):
         """更新统计信息"""
         if 'experiment_records' in st.session_state:
