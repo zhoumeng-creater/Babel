@@ -1,11 +1,14 @@
-"""孤独症儿童AI模拟实验平台主程序 - 支持ABC量表和DSM-5双标准 - 统一评估"""
+"""孤独症儿童AI模拟实验平台主程序 增强版"""
 import streamlit as st
 
 # 导入通用模块
 from common.config import EXCEL_AVAILABLE
 from common.ui_components import display_sidebar_stats
+
+# 导入增强功能页面
 from autism.pages.intervention_assessment_page import page_intervention_assessment
 from autism.pages.score_based_generation_page import page_score_based_generation
+from autism.pages.multi_scale_assessment_page import page_multi_scale_assessment
 
 # 导入孤独症专用模块
 from autism.pages import (
@@ -17,7 +20,7 @@ from autism.pages import (
 )
 
 # 页面配置
-st.set_page_config(page_title="孤独症儿童AI模拟实验平台 - 双标准版", layout="wide")
+st.set_page_config(page_title="孤独症儿童AI模拟实验平台 - 增强版", layout="wide", initial_sidebar_state="expanded")
 
 # 初始化session state
 if 'experiment_records' not in st.session_state:
@@ -28,17 +31,35 @@ if 'experiment_progress' not in st.session_state:
     st.session_state.experiment_progress = {'current': 0, 'total': 0}
 
 # 主页面
-st.title("🏥 孤独症儿童AI模拟实验平台 - 统一评估版")
-st.markdown("**统一行为生成，ABC量表与DSM-5标准双重评估系统**")
+st.title("🏥 孤独症儿童AI模拟实验平台 - 增强版")
+st.markdown("**支持ABC、DSM-5、CARS、ASSQ四大量表评估 | 干预效果评估 | 分数驱动生成**")
 
 # 侧边栏导航
 st.sidebar.title("🔍 导航")
-page = st.sidebar.selectbox("选择功能页面", [
-    "快速临床评估", "批量临床研究", "个性化评估设计", 
-    "临床数据导入", "施加干预&评估", "分数->对话生成",
-    "临床数据分析", "评估记录管理", 
-    "📊 临床报告中心"
-])
+
+# 使用分组选择框
+page_category = st.sidebar.radio(
+    "功能类别",
+    ["基础评估", "增强功能", "数据管理", "报告中心"]
+)
+
+if page_category == "基础评估":
+    page = st.sidebar.selectbox(
+        "选择功能",
+        ["快速临床评估", "批量临床研究", "个性化评估设计"]
+    )
+elif page_category == "增强功能":
+    page = st.sidebar.selectbox(
+        "选择功能",
+        ["多量表综合评估", "干预效果评估", "分数驱动生成"]
+    )
+elif page_category == "数据管理":
+    page = st.sidebar.selectbox(
+        "选择功能",
+        ["临床数据导入", "临床数据分析", "评估记录管理"]
+    )
+else:
+    page = "📊 临床报告中心"
 
 # 页面路由
 if page == "快速临床评估":

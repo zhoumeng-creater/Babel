@@ -9,7 +9,7 @@ from autism.evaluation import run_single_experiment
 def page_quick_assessment():
     """快速评估页面 - 统一生成，双标准评估"""
     st.header("🩺 快速临床评估")
-    st.markdown("生成孤独症儿童行为表现，同时进行ABC和DSM-5双重评估")
+    st.markdown("生成孤独症儿童行为表现，支持多种量表评估")
     
     col1, col2 = st.columns(2)
     
