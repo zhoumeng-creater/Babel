@@ -4,6 +4,8 @@ import streamlit as st
 # 导入通用模块
 from common.config import EXCEL_AVAILABLE
 from common.ui_components import display_sidebar_stats
+from autism.pages.intervention_assessment_page import page_intervention_assessment
+from autism.pages.score_based_generation_page import page_score_based_generation
 
 # 导入孤独症专用模块
 from autism.pages import (
@@ -33,7 +35,8 @@ st.markdown("**统一行为生成，ABC量表与DSM-5标准双重评估系统**"
 st.sidebar.title("🔍 导航")
 page = st.sidebar.selectbox("选择功能页面", [
     "快速临床评估", "批量临床研究", "个性化评估设计", 
-    "临床数据分析", "评估记录管理", "临床数据导入",
+    "临床数据导入", "施加干预&评估", "分数->对话生成",
+    "临床数据分析", "评估记录管理", 
     "📊 临床报告中心"
 ])
 
@@ -44,13 +47,17 @@ elif page == "批量临床研究":
     page_batch_research()
 elif page == "个性化评估设计":
     page_custom_assessment()
+elif page == "临床数据导入":
+    from autism.pages.data_import_page import page_data_import
+    page_data_import()
+elif page == "施加干预&评估":
+    page_intervention_assessment()
+elif page == "分数->对话生成":
+    page_score_based_generation()
 elif page == "临床数据分析":
     page_data_analysis()
 elif page == "评估记录管理":
     page_records_management()
-elif page == "临床数据导入":
-    from autism.pages.data_import_page import page_data_import
-    page_data_import()
 elif page == "📊 临床报告中心":
     # 导入报告页面（这个页面会比较大，单独导入）
     from autism.report_center import page_report_center
