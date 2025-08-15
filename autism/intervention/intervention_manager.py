@@ -584,27 +584,30 @@ class InterventionManager:
     def _compare_abc_scores(self, baseline: Dict, intervention: Dict) -> Dict[str, Any]:
         """比较ABC量表得分变化"""
         comparison = {
-            'total_change': intervention['total_score'] - baseline['total_score'],
-            'improvement_rate': (baseline['total_score'] - intervention['total_score']) / baseline['total_score'] if baseline['total_score'] > 0 else 0,
-            'domain_changes': {}
+            'total_change': float(intervention['total_score'] - baseline['total_score']),  # 确保是浮点数
+            'severity_change': f"{baseline['severity']} -> {intervention['severity']}",
+            'domain_changes': {},
+            'improvement_rate': 0.0
         }
+        
+        # 计算改善率（分数降低为改善）
+        if baseline['total_score'] > 0:
+            improvement = (baseline['total_score'] - intervention['total_score']) / baseline['total_score']
+            comparison['improvement_rate'] = max(0, improvement)  # 确保非负
         
         # 比较各领域变化
         for domain in baseline.get('domain_scores', {}):
             if domain in intervention.get('domain_scores', {}):
-                change = intervention['domain_scores'][domain] - baseline['domain_scores'][domain]
+                baseline_score = baseline['domain_scores'][domain]
+                intervention_score = intervention['domain_scores'][domain]
+                change = intervention_score - baseline_score
+                
                 comparison['domain_changes'][domain] = {
-                    'change': change,
-                    'direction': '改善' if change < 0 else '恶化' if change > 0 else '无变化'
+                    'baseline': baseline_score,
+                    'intervention': intervention_score,
+                    'change': float(change),  # 确保是浮点数
+                    'direction': '改善' if change < 0 else ('恶化' if change > 0 else '无变化')
                 }
-        
-        # 比较识别的行为
-        baseline_behaviors = set(baseline.get('identified_behaviors', {}).keys())
-        intervention_behaviors = set(intervention.get('identified_behaviors', {}).keys())
-        
-        comparison['behaviors_reduced'] = list(baseline_behaviors - intervention_behaviors)
-        comparison['behaviors_persisted'] = list(baseline_behaviors & intervention_behaviors)
-        comparison['behaviors_new'] = list(intervention_behaviors - baseline_behaviors)
         
         return comparison
     
@@ -633,7 +636,7 @@ class InterventionManager:
     def _compare_cars_scores(self, baseline: Dict, intervention: Dict) -> Dict[str, Any]:
         """比较CARS量表得分变化"""
         comparison = {
-            'total_change': intervention['total_score'] - baseline['total_score'],
+            'total_change': float(intervention['total_score'] - baseline['total_score']),  # 确保是浮点数
             'severity_change': f"{baseline['severity']} -> {intervention['severity']}",
             'item_changes': {}
         }
@@ -642,14 +645,14 @@ class InterventionManager:
         for item in baseline.get('item_scores', {}):
             if item in intervention.get('item_scores', {}):
                 change = intervention['item_scores'][item] - baseline['item_scores'][item]
-                comparison['item_changes'][item] = change
+                comparison['item_changes'][item] = float(change)  # 确保是浮点数
         
         return comparison
     
     def _compare_assq_scores(self, baseline: Dict, intervention: Dict) -> Dict[str, Any]:
         """比较ASSQ筛查得分变化"""
         comparison = {
-            'total_change': intervention['total_score'] - baseline['total_score'],
+            'total_change': float(intervention['total_score'] - baseline['total_score']),  # 确保是浮点数
             'risk_change': f"{baseline['risk_level']} -> {intervention['risk_level']}",
             'category_changes': {}
         }
@@ -658,7 +661,7 @@ class InterventionManager:
         for cat in baseline.get('category_scores', {}):
             if cat in intervention.get('category_scores', {}):
                 change = intervention['category_scores'][cat] - baseline['category_scores'][cat]
-                comparison['category_changes'][cat] = change
+                comparison['category_changes'][cat] = float(change)  # 确保是浮点数
         
         return comparison
     

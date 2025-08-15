@@ -19,27 +19,57 @@ def run_batch_processing(items, process_function, progress_callback=None, item_n
     """
     results = []
     
+    # 创建进度容器
+    if 'st' in globals():
+        progress_container = st.container()
+        with progress_container:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            eta_text = st.empty()
+    
+    total_items = len(items)
+    start_time = time.time()
+    
     for i, item in enumerate(items):
         if progress_callback:
-            progress_callback(i + 1, len(items))
+            progress_callback(i + 1, total_items)
         
+        # 更新进度显示
         if 'st' in globals():
-            remaining_items = len(items) - i - 1
-            estimated_time = remaining_items * DELAY_BETWEEN_REQUESTS / 60
-            st.info(f"⏳ 正在处理第 {i+1}/{len(items)} 个{item_name}，预计还需 {estimated_time:.1f} 分钟")
+            progress = (i + 1) / total_items
+            progress_bar.progress(progress)
+            
+            # 计算剩余时间
+            elapsed_time = time.time() - start_time
+            if i > 0:
+                avg_time_per_item = elapsed_time / i
+                remaining_items = total_items - i - 1
+                eta_seconds = remaining_items * avg_time_per_item
+                eta_minutes = eta_seconds / 60
+                
+                status_text.text(f"⏳ 处理进度: {i+1}/{total_items} ({progress:.1%})")
+                eta_text.text(f"预计剩余时间: {eta_minutes:.1f} 分钟")
         
-        result = process_function(item)
-        results.append(result)
+        # 处理项目
+        try:
+            result = process_function(item)
+            results.append(result)
+        except Exception as e:
+            error_result = {
+                'error': f'处理失败: {str(e)}',
+                'item': item.get('experiment_id', 'unknown')
+            }
+            results.append(error_result)
         
-        if i < len(items) - 1:
-            print(f"等待{DELAY_BETWEEN_REQUESTS}秒避免API限制...")
-            if 'st' in globals():
-                progress_bar = st.progress(0)
-                for wait_second in range(DELAY_BETWEEN_REQUESTS):
-                    progress_bar.progress((wait_second + 1) / DELAY_BETWEEN_REQUESTS)
-                    time.sleep(1)
-                progress_bar.empty()
-            else:
-                time.sleep(DELAY_BETWEEN_REQUESTS)
+        # API限制延迟
+        if i < total_items - 1:
+            time.sleep(DELAY_BETWEEN_REQUESTS)
+    
+    # 清理进度显示
+    if 'st' in globals():
+        progress_bar.empty()
+        status_text.empty()
+        eta_text.empty()
+        st.success(f"✅ 批量处理完成！共处理 {total_items} 个{item_name}")
     
     return results

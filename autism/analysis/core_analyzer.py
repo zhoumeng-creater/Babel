@@ -5,7 +5,11 @@ from typing import List, Dict, Any, Tuple
 from .abc_analyzer import analyze_abc_evaluations, generate_abc_analysis
 from .dsm5_analyzer import analyze_dsm5_evaluations, generate_dsm5_analysis
 from .comparison_analyzer import analyze_evaluation_consistency
-
+from .enhanced_analyzer import (
+    analyze_cars_evaluations,
+    analyze_assq_evaluations,
+    analyze_multi_scale_consistency
+)
 
 def generate_clinical_analysis(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     """生成临床分析报告 - 支持新旧数据格式"""
@@ -67,6 +71,22 @@ def generate_unified_analysis(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     dsm5_analysis = analyze_dsm5_evaluations(records)
     if dsm5_analysis:
         analysis['DSM-5标准分析'] = dsm5_analysis
+    
+    # 添加 CARS 分析
+    cars_records = [r for r in records if 'cars_evaluation' in r]
+    if cars_records:
+        analysis['CARS分析'] = analyze_cars_evaluations(cars_records)
+    
+    # 添加 ASSQ 分析
+    assq_records = [r for r in records if 'assq_evaluation' in r]
+    if assq_records:
+        analysis['ASSQ分析'] = analyze_assq_evaluations(assq_records)
+    
+    # 添加多量表对比
+    multi_scale_records = [r for r in records if len([k for k in r.keys() 
+                           if k.endswith('_evaluation')]) > 2]
+    if multi_scale_records:
+        analysis['多量表对比'] = analyze_multi_scale_consistency(multi_scale_records)
     
     # 评估一致性分析
     consistency_analysis = analyze_evaluation_consistency(records)
