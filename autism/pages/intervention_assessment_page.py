@@ -316,7 +316,7 @@ def display_intervention_results(intervention_result: Dict[str, Any]):
             st.metric(
                 "ABC总分",
                 current_score,
-                f"{change:+d}",
+                f"{change:+.2f}",
                 delta_color="inverse"
             )
     
