@@ -523,3 +523,140 @@ def get_scale_selection_recommendations(
             })
     
     return recommendations
+
+def evaluate_dialogue_with_scales(
+    dialogue: str,
+    autism_profile: Dict[str, Any],
+    scene_data: Dict[str, Any],
+    scales: List[str]
+) -> Dict[str, Any]:
+    """
+    对已有对话使用指定量表进行评估
+    
+    Args:
+        dialogue: 要评估的对话文本
+        autism_profile: 孤独症特征配置
+        scene_data: 场景数据
+        scales: 要使用的量表列表
+    
+    Returns:
+        包含各量表评估结果的字典
+    """
+    # 验证量表选择
+    valid_scales = validate_scale_selection(scales)
+    if not valid_scales:
+        return {
+            'error': '未选择有效的评估量表',
+            'available_scales': list(AVAILABLE_SCALES.keys())
+        }
+    
+    # 初始化结果字典
+    evaluation_results = {}
+    
+    # 执行选定的量表评估
+    if 'ABC' in valid_scales:
+        abc_results = perform_abc_evaluation(dialogue, autism_profile, scene_data)
+        evaluation_results['abc_evaluation'] = abc_results
+    
+    if 'DSM5' in valid_scales:
+        dsm5_results = perform_dsm5_evaluation(dialogue, autism_profile, scene_data)
+        evaluation_results['dsm5_evaluation'] = dsm5_results
+    
+    if 'CARS' in valid_scales:
+        cars_results = perform_cars_evaluation(dialogue, autism_profile, scene_data)
+        evaluation_results['cars_evaluation'] = cars_results
+    
+    if 'ASSQ' in valid_scales:
+        assq_results = perform_assq_evaluation(dialogue, autism_profile, scene_data)
+        evaluation_results['assq_evaluation'] = assq_results
+    
+    # 添加综合分析
+    if len(valid_scales) > 1:
+        comparison = compare_scale_results(evaluation_results)
+        evaluation_results['scale_comparison'] = comparison
+    
+    # 添加评估摘要
+    evaluation_results['evaluation_summary'] = generate_evaluation_summary(evaluation_results, valid_scales)
+    
+    # 添加元数据
+    evaluation_results['dialogue'] = dialogue
+    evaluation_results['selected_scales'] = valid_scales
+    evaluation_results['timestamp'] = datetime.datetime.now()
+    
+    return evaluation_results
+
+
+def generate_evaluation_summary(
+    evaluation_results: Dict[str, Any],
+    scales_used: List[str]
+) -> Dict[str, Any]:
+    """
+    生成评估摘要
+    
+    Args:
+        evaluation_results: 各量表的评估结果
+        scales_used: 使用的量表列表
+    
+    Returns:
+        评估摘要
+    """
+    summary = {
+        'scales_used': scales_used,
+        'severity_consensus': None,
+        'key_findings': [],
+        'recommendations': []
+    }
+    
+    # 收集严重程度判断
+    severity_assessments = []
+    
+    if 'abc_evaluation' in evaluation_results:
+        abc = evaluation_results['abc_evaluation']
+        severity_assessments.append(abc['severity'])
+        summary['key_findings'].append(f"ABC总分: {abc['total_score']}分 ({abc['severity']})")
+        
+        if abc['total_score'] >= 67:
+            summary['recommendations'].append("ABC量表提示需要专业评估和干预")
+    
+    if 'dsm5_evaluation' in evaluation_results:
+        dsm5 = evaluation_results['dsm5_evaluation']
+        severity_assessments.append(dsm5['severity_level'])
+        summary['key_findings'].append(f"DSM-5核心症状平均: {dsm5['core_symptom_average']:.1f}")
+        
+        if dsm5['meets_criteria']['overall']:
+            summary['recommendations'].append("符合DSM-5孤独症诊断标准")
+    
+    if 'cars_evaluation' in evaluation_results:
+        cars = evaluation_results['cars_evaluation']
+        severity_assessments.append(cars['severity'])
+        summary['key_findings'].append(f"CARS总分: {cars['total_score']:.1f}分 ({cars['severity']})")
+        
+        if cars['clinical_cutoff']:
+            summary['recommendations'].append("CARS评分达到临床阈值")
+    
+    if 'assq_evaluation' in evaluation_results:
+        assq = evaluation_results['assq_evaluation']
+        summary['key_findings'].append(f"ASSQ筛查分: {assq['total_score']}分 ({assq['risk_level']})")
+        
+        if assq['positive_screen']:
+            summary['recommendations'].append("ASSQ筛查阳性，建议进一步评估")
+    
+    # 确定严重程度共识
+    if severity_assessments:
+        # 简化的共识判断
+        if '重度' in severity_assessments or '需要非常大量支持' in severity_assessments:
+            summary['severity_consensus'] = '重度'
+        elif '中度' in severity_assessments or '需要大量支持' in severity_assessments:
+            summary['severity_consensus'] = '中度'
+        elif '轻度' in severity_assessments or '需要支持' in severity_assessments:
+            summary['severity_consensus'] = '轻度'
+        else:
+            summary['severity_consensus'] = '正常或亚临床'
+    
+    # 添加综合建议
+    if len(summary['recommendations']) == 0:
+        summary['recommendations'].append("继续观察，定期复查")
+    elif len(summary['recommendations']) >= 2:
+        summary['recommendations'].insert(0, "多项评估提示需要综合干预")
+    
+    return summary

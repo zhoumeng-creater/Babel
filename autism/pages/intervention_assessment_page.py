@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from typing import Dict, Any, List
 
 from autism.configs import UNIFIED_AUTISM_PROFILES, CLINICAL_SCENE_CONFIG
-from autism.evaluation.enhanced_unified_evaluator import run_single_experiment_with_scales
+from autism.evaluation.enhanced_unified_evaluator import run_enhanced_experiment
 from autism.intervention.intervention_manager import InterventionManager
 from autism.intervention.intervention_config import (
     BEHAVIORAL_INTERVENTIONS,
@@ -159,7 +159,7 @@ def single_intervention_assessment():
                 }
                 
                 # 生成基线评估
-                baseline_result = run_single_experiment_with_scales(baseline_config)
+                baseline_result = run_enhanced_experiment(baseline_config)
                 
                 # 保存到会话状态
                 st.session_state.baseline_result = baseline_result

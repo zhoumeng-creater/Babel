@@ -10,7 +10,7 @@ import copy
 from common.api_client import call_kimi_api
 from autism.configs import CLINICAL_SCENE_CONFIG, UNIFIED_AUTISM_PROFILES
 from autism.evaluation.unified_evaluator import build_unified_autism_prompt
-from autism.evaluation.enhanced_unified_evaluator import run_single_experiment_with_scales
+from autism.evaluation.enhanced_unified_evaluator import run_enhanced_experiment
 
 from .intervention_config import (
     BEHAVIORAL_INTERVENTIONS,
@@ -531,7 +531,7 @@ class InterventionManager:
             return result
         else:
             # 生成新对话并评估
-            return run_single_experiment_with_scales(eval_config)
+            return run_enhanced_experiment(eval_config)
     
     def _calculate_duration_factor(self, duration: str) -> float:
         """计算干预时长对效果的影响系数"""

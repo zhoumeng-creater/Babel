@@ -10,7 +10,7 @@ import streamlit as st
 from common.api_client import call_kimi_api
 from autism.configs import CLINICAL_SCENE_CONFIG
 from autism.evaluation.enhanced_unified_evaluator import (
-    run_single_experiment_with_scales,
+    run_enhanced_experiment,
     evaluate_dialogue_with_scales
 )
 
